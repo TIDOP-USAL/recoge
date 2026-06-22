@@ -1,0 +1,13 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+#![expect(rustdoc::missing_crate_level_docs)] // it's an example
+
+pub mod docker;
+pub mod ui;
+pub mod tasks;
+
+fn main() {
+    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
+    let rt = tokio::runtime::Runtime::new().expect("Unable to create background threads");
+    let _enter = rt.enter();
+    ui::ui_start().unwrap();
+}
