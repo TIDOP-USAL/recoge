@@ -4,6 +4,7 @@
 pub mod docker;
 pub mod tasks;
 pub mod ui;
+pub mod upload_window;
 
 fn main() {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).

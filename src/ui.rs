@@ -1,5 +1,6 @@
 use crate::docker;
 use crate::tasks::Task;
+use crate::upload_window;
 use eframe::egui;
 use egui::{Align, Layout, UiBuilder};
 use egui_extras::Column;
@@ -29,6 +30,8 @@ pub struct MyApp {
     image_list: Arc<Mutex<Vec<Image>>>,
     image_list_loaded: Arc<Mutex<bool>>,
     data: Task<()>,
+    upload_window_options: Arc<Mutex<upload_window::WindowOptions>>,
+    upload_window_open: Arc<Mutex<bool>>,
 }
 
 impl MyApp {
@@ -63,12 +66,20 @@ impl Default for MyApp {
             image_list: Arc::new(Mutex::new(image_list)),
             image_list_loaded: Arc::new(Mutex::new(false)),
             data: Task::new(),
+            upload_window_options: Arc::new(Mutex::new(upload_window::WindowOptions::default())),
+            upload_window_open: Arc::new(Mutex::new(false)),
         }
     }
 }
 
 impl eframe::App for MyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let upload_window_options_arc = Arc::clone(&self.upload_window_options);
+        let mut upload_window_options = &mut *upload_window_options_arc.lock().unwrap();
+        let upload_window_open_arc = Arc::clone(&self.upload_window_open);
+        let mut upload_window_open = &mut *upload_window_open_arc.lock().unwrap();
+        upload_window::show(&mut upload_window_options, ui, &mut upload_window_open);
+
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.heading("recoge");
 
@@ -133,24 +144,32 @@ impl eframe::App for MyApp {
                         body.row(row_height, |mut row| {
                             //row.set_selected(self.selection.contains(&row_index));
                             //row.set_overline(self.overline && row_index % 7 == 3);
-			    
+
                             row.col(|ui| {
-				let image_name = &image.get_name();
-				ui.label(image_name);
-				
-				ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
-				    if ui.button("⬆")
-					.on_hover_text("Subir a registro")
-					.clicked() {
-					    //*boolean = !*boolean;
-					    println!("Subir {image_name}");
-					}
-				    if ui.button("ℹ")
-					.on_hover_text("Información de la imagen")
-					.clicked() {
-					println!("Info de {image_name}");
-				    }
-				});
+                                let image_name = &image.get_name();
+                                ui.label(image_name);
+
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::LEFT),
+                                    |ui| {
+                                        if ui
+                                            .button("⬆")
+                                            .on_hover_text("Subir a registro")
+                                            .clicked()
+                                        {
+                                            //*boolean = !*boolean;
+                                            println!("Subir {image_name}");
+                                            *upload_window_open = true;
+                                        }
+                                        if ui
+                                            .button("ℹ")
+                                            .on_hover_text("Información de la imagen")
+                                            .clicked()
+                                        {
+                                            println!("Info de {image_name}");
+                                        }
+                                    },
+                                );
                             });
                             row.col(|ui| {
                                 ui.label(image.get_human_size());
