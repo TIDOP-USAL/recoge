@@ -100,17 +100,16 @@ impl eframe::App for MyApp {
             let _table = TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
-                .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                .column(Column::auto())
+                .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
                 .column(
                     Column::remainder()
-                        .at_least(60.0)
-                        .clip(false)
+                        //.at_least(80.0)
+                        .clip(true)
                         .resizable(true),
                 )
                 .column(Column::auto())
-                .column(Column::remainder())
-                .column(Column::remainder())
+                .column(Column::auto())
+                .column(Column::auto())
                 .min_scrolled_height(0.0)
                 .max_scroll_height(available_height)
                 .header(30.0, |mut header| {
@@ -134,9 +133,24 @@ impl eframe::App for MyApp {
                         body.row(row_height, |mut row| {
                             //row.set_selected(self.selection.contains(&row_index));
                             //row.set_overline(self.overline && row_index % 7 == 3);
-
+			    
                             row.col(|ui| {
-                                ui.label(image.get_name());
+				let image_name = &image.get_name();
+				ui.label(image_name);
+				
+				ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
+				    if ui.button("⬆")
+					.on_hover_text("Subir a registro")
+					.clicked() {
+					    //*boolean = !*boolean;
+					    println!("Subir {image_name}");
+					}
+				    if ui.button("ℹ")
+					.on_hover_text("Información de la imagen")
+					.clicked() {
+					println!("Info de {image_name}");
+				    }
+				});
                             });
                             row.col(|ui| {
                                 ui.label(image.get_human_size());
