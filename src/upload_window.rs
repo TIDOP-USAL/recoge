@@ -1,5 +1,5 @@
 use eframe::egui;
-use egui::{UiKind, Vec2b};
+use egui::Vec2b;
 
 #[derive(Clone, PartialEq)]
 pub struct WindowOptions {
@@ -12,28 +12,28 @@ pub struct WindowOptions {
     constrain: bool,
     scroll2: Vec2b,
     disabled_time: f64,
-
     anchored: bool,
     anchor: egui::Align2,
     anchor_offset: egui::Vec2,
-    //drag_area: WindowDrag,
+    pub image_name: Option<String>,
 }
 
 impl Default for WindowOptions {
     fn default() -> Self {
         Self {
-            title: "🗖 Upload Window Options".to_owned(),
+            title: "Subir a registro".to_owned(),
             title_bar: true,
             closable: true,
-            collapsible: true,
+            collapsible: false,
             movable: true,
-            resizable: true,
+            resizable: false,
             constrain: true,
-            scroll2: Vec2b::TRUE,
+            scroll2: Vec2b::FALSE,
             disabled_time: f64::NEG_INFINITY,
             anchored: false,
             anchor: egui::Align2::RIGHT_TOP,
             anchor_offset: egui::Vec2::ZERO,
+	    image_name: None,
         }
     }
 }
@@ -52,6 +52,7 @@ pub fn show(mut options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool)
         anchored,
         anchor,
         anchor_offset,
+	image_name: _,
     } = options.clone();
 
     let enabled = ui.input(|i| i.time) - disabled_time > 2.0;
@@ -75,7 +76,10 @@ pub fn show(mut options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool)
     if anchored {
         window = window.anchor(anchor, anchor_offset);
     }
-    window.show(ui, |ui| ui_fn(&mut options, ui));
+    //let size = ui.available_size();
+    //println!("{size:?}");
+    window/*.default_pos(egui::pos2(size[0], size[1]))*/
+	.show(ui, |ui| ui_fn(&mut options, ui));
 }
 
 fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
@@ -92,7 +96,13 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         anchored,
         anchor,
         anchor_offset,
+	image_name,
     } = options;
+
+    if let Some(image_name) = image_name {
+	ui.label(format!("Image name: \"{image_name}\""));
+    }
+    
     ui.horizontal(|ui| {
         ui.label("title:");
         ui.text_edit_singleline(title);
@@ -144,7 +154,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
     let on_top = Some(ui.layer_id()) == ui.ctx().top_layer_id();
     ui.label(format!("This window is on top: {on_top}."));
 
-    ui.separator(); /*
+    /*ui.separator(); 
     ui.horizontal(|ui| {
     if ui.button("Disable for 2 seconds").clicked() {
     self.disabled_time = ui.input(|i| i.time);

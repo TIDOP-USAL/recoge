@@ -159,6 +159,7 @@ impl eframe::App for MyApp {
                                         {
                                             //*boolean = !*boolean;
                                             println!("Subir {image_name}");
+					    upload_window_options.image_name = Some(image_name.to_string());
                                             *upload_window_open = true;
                                         }
                                         if ui
