@@ -33,7 +33,7 @@ impl Default for WindowOptions {
             anchored: false,
             anchor: egui::Align2::RIGHT_TOP,
             anchor_offset: egui::Vec2::ZERO,
-	    image_name: None,
+            image_name: None,
         }
     }
 }
@@ -52,7 +52,7 @@ pub fn show(mut options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool)
         anchored,
         anchor,
         anchor_offset,
-	image_name: _,
+        image_name: _,
     } = options.clone();
 
     let enabled = ui.input(|i| i.time) - disabled_time > 2.0;
@@ -76,10 +76,10 @@ pub fn show(mut options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool)
     if anchored {
         window = window.anchor(anchor, anchor_offset);
     }
-    //let size = ui.available_size();
-    //println!("{size:?}");
-    window/*.default_pos(egui::pos2(size[0], size[1]))*/
-	.show(ui, |ui| ui_fn(&mut options, ui));
+    let rect_size = ui.content_rect().size();
+    window
+        .default_pos(egui::pos2(rect_size.x / 2.0, rect_size.y / 2.0))
+        .show(ui, |ui| ui_fn(&mut options, ui));
 }
 
 fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
@@ -96,13 +96,13 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         anchored,
         anchor,
         anchor_offset,
-	image_name,
+        image_name,
     } = options;
 
     if let Some(image_name) = image_name {
-	ui.label(format!("Image name: \"{image_name}\""));
+        ui.label(format!("Imagen: \"{image_name}\""));
     }
-    
+
     ui.horizontal(|ui| {
         ui.label("title:");
         ui.text_edit_singleline(title);
@@ -154,7 +154,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
     let on_top = Some(ui.layer_id()) == ui.ctx().top_layer_id();
     ui.label(format!("This window is on top: {on_top}."));
 
-    /*ui.separator(); 
+    /*ui.separator();
     ui.horizontal(|ui| {
     if ui.button("Disable for 2 seconds").clicked() {
     self.disabled_time = ui.input(|i| i.time);

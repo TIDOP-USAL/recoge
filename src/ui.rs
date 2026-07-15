@@ -10,17 +10,25 @@ use std::sync::{Arc, Mutex};
 use docker::Image;
 
 pub fn ui_start() -> eframe::Result {
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([920.0, 440.0]),
         ..Default::default()
     };
+    options.viewport.fullscreen = Some(false);
+    options.viewport.maximized = Some(false);
+    options.viewport.window_type = Some(egui::X11WindowType::Dialog);
     eframe::run_native(
         "recoge",
         options,
         Box::new(|cc| {
             // This gives us image support:
             egui_extras::install_image_loaders(&cc.egui_ctx);
-
+            //  Get light/dark theme
+            let theme = match dark_light::detect()? {
+                dark_light::Mode::Dark => egui::style::Visuals::dark(),
+                _ => egui::style::Visuals::light(),
+            };
+            cc.egui_ctx.set_visuals(theme);
             Ok(Box::<MyApp>::default())
         }),
     )
@@ -159,7 +167,8 @@ impl eframe::App for MyApp {
                                         {
                                             //*boolean = !*boolean;
                                             println!("Subir {image_name}");
-					    upload_window_options.image_name = Some(image_name.to_string());
+                                            upload_window_options.image_name =
+                                                Some(image_name.to_string());
                                             *upload_window_open = true;
                                         }
                                         if ui
