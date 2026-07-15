@@ -2,10 +2,10 @@
 #![expect(rustdoc::missing_crate_level_docs)] // it's an example
 
 pub mod docker;
+pub mod image_info_window;
 pub mod tasks;
 pub mod ui;
 pub mod upload_window;
-pub mod image_info_window;
 
 fn main() {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).

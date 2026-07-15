@@ -10,7 +10,7 @@ impl Default for WindowState {
     fn default() -> Self {
         Self {
             options: WindowOptions::default(),
-	    open: false,
+            open: false,
         }
     }
 }
@@ -25,11 +25,11 @@ pub struct WindowOptions {
     resizable: bool,
     constrain: bool,
     scroll2: Vec2b,
-    disabled_time: f64,
     anchored: bool,
     anchor: egui::Align2,
     anchor_offset: egui::Vec2,
     should_close: bool,
+    pub data_is_loading: bool,
     pub image_name: Option<String>,
     pub image_digest: Option<String>,
     pub image_inspect: Option<bollard::models::ImageInspect>,
@@ -46,23 +46,23 @@ impl Default for WindowOptions {
             resizable: false,
             constrain: true,
             scroll2: Vec2b::FALSE,
-            disabled_time: f64::NEG_INFINITY,
             anchored: false,
             anchor: egui::Align2::RIGHT_TOP,
             anchor_offset: egui::Vec2::ZERO,
-	    should_close: false,
+            should_close: false,
+            data_is_loading: false,
             image_name: None,
-	    image_digest: None,
-	    image_inspect: None,
+            image_digest: None,
+            image_inspect: None,
         }
     }
 }
 
 pub fn show(mut options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool) {
     if options.should_close {
-	*open = false;
-	options.should_close = false;
-	return;
+        *open = false;
+        options.should_close = false;
+        return;
     }
     let WindowOptions {
         title,
@@ -73,21 +73,21 @@ pub fn show(mut options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool)
         resizable,
         constrain,
         scroll2,
-        disabled_time,
         anchored,
         anchor,
         anchor_offset,
-	should_close,
+        should_close,
+        data_is_loading,
         image_name: _,
-	image_digest: _,
-	image_inspect: _,
+        image_digest: _,
+        image_inspect: _,
     } = options.clone();
     if should_close {
-	*open = false;
-	return;
+        *open = false;
+        return;
     }
-    
-    let enabled = ui.input(|i| i.time) - disabled_time > 2.0;
+
+    let enabled = !data_is_loading;
     if !enabled {
         ui.request_repaint();
     }
@@ -124,49 +124,51 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         resizable: _,
         constrain: _,
         scroll2: _,
-        disabled_time: _,
         anchored: _,
         anchor: _,
         anchor_offset: _,
-	should_close,
+        should_close,
+        data_is_loading: _,
         image_name,
-	image_digest,
-	image_inspect,
+        image_digest,
+        image_inspect,
     } = options;
 
     let Some(image_name) = image_name else {
-	eprintln!("Window opened without image_name");
-	return;
+        eprintln!("Window opened without image_name");
+        return;
     };
     let Some(image_digest) = image_digest else {
-	eprintln!("Window opened without image_digest");
-	return;
+        eprintln!("Window opened without image_digest");
+        return;
     };
     let Some(image_inspect) = image_inspect else {
-	*should_close = true;
-	eprintln!("Window opened without image_inspect");
-	return;
+        *should_close = true;
+        eprintln!("Window opened without image_inspect");
+        return;
     };
     ui.label(format!("Imagen: \"{image_name}\""));
     //ui.label(format!("Digest: \"{image_digest}\""));
     //ui.label(format!("Inspect: \"{image_inspect:?}\""));
-    ui.label(format!("Tamaño: {}", humansize::format_size(image_inspect.size.unwrap() as u64, humansize::DECIMAL)));
+    ui.label(format!(
+        "Tamaño: {}",
+        humansize::format_size(image_inspect.size.unwrap() as u64, humansize::DECIMAL)
+    ));
     ui.label(format!("Autor: {:?}", image_inspect.author));
     ui.label(format!("Arquitectura: {:?}", image_inspect.architecture));
-    
-    if ui.button("🗑").on_hover_text("Eliminar la imagen").clicked() {
-	println!("Eliminar {image_digest}");
-    }
-    
+
     ui.separator();
+    ui.horizontal(|ui| {
+        ui.label("Acciones: ");
+        if ui.button("🗑").on_hover_text("Eliminar la imagen").clicked() {
+            println!("Eliminar {image_digest}");
+        }
+    });
     let on_top = Some(ui.layer_id()) == ui.ctx().top_layer_id();
     ui.label(format!("This window is on top: {on_top}."));
 
     /*ui.separator();
     ui.horizontal(|ui| {
-    if ui.button("Disable for 2 seconds").clicked() {
-    self.disabled_time = ui.input(|i| i.time);
-    }
     egui::reset_button(ui, self, "Reset");
     if ui
     .button("Close")

@@ -10,7 +10,7 @@ impl Default for WindowState {
     fn default() -> Self {
         Self {
             options: WindowOptions::default(),
-	    open: false,
+            open: false,
         }
     }
 }

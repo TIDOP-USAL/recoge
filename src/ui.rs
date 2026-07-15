@@ -1,7 +1,7 @@
 use crate::docker;
+use crate::image_info_window;
 use crate::tasks::Task;
 use crate::upload_window;
-use crate::image_info_window;
 use eframe::egui;
 use egui::{Align, Layout, UiBuilder};
 use egui_extras::Column;
@@ -55,7 +55,7 @@ impl MyApp {
 
         self.data.fire_async(async move {
             //tokio::task::spawn_local(async move {
-	    *image_list_loaded_arc.lock().unwrap() = false;
+            *image_list_loaded_arc.lock().unwrap() = false;
             let mut images = docker::bollard_image_list().await;
 
             let mut image_list = image_list_arc.lock().unwrap();
@@ -66,16 +66,19 @@ impl MyApp {
         });
     }
     pub fn inspect_image(&mut self, image: String) {
-	
         let image_info_window_state_arc = Arc::clone(&self.image_info_window_state);
-	
+
         self.data.fire_async(async move {
-            let image_inspect = docker::bollard_image_inspect(image).await;
-	    
+            let result = docker::bollard_image_inspect(image).await;
+
             let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
-	    image_info_window_state.options.image_inspect = Some(image_inspect);
-	    image_info_window_state.open = true;
-	});
+            image_info_window_state.options.data_is_loading = false;
+
+            if let Ok(image_inspect) = result {
+                image_info_window_state.options.image_inspect = Some(image_inspect);
+                image_info_window_state.open = true;
+            }
+        });
     }
 }
 
@@ -98,7 +101,9 @@ impl Default for MyApp {
             image_list_loaded: Arc::new(Mutex::new(true)),
             data: Task::new(),
             upload_window_state: Arc::new(Mutex::new(upload_window::WindowState::default())),
-            image_info_window_state: Arc::new(Mutex::new(image_info_window::WindowState::default())),
+            image_info_window_state: Arc::new(
+                Mutex::new(image_info_window::WindowState::default()),
+            ),
             image_table_data: ImageTableData {
                 date_reversed: true,
             },
@@ -110,12 +115,23 @@ impl eframe::App for MyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let upload_window_state_arc = Arc::clone(&self.upload_window_state);
         let upload_window_state = &mut *upload_window_state_arc.lock().unwrap();
-        upload_window::show(&mut upload_window_state.options, ui, &mut upload_window_state.open);
+        upload_window::show(
+            &mut upload_window_state.options,
+            ui,
+            &mut upload_window_state.open,
+        );
         let image_info_window_state_arc = Arc::clone(&self.image_info_window_state);
         let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
-        image_info_window::show(&mut image_info_window_state.options, ui, &mut image_info_window_state.open);
-	//println!("{}",image_info_window_state.open);
-	
+        image_info_window::show(
+            &mut image_info_window_state.options,
+            ui,
+            &mut image_info_window_state.open,
+        );
+        //println!("{}",image_info_window_state.open);
+        if image_info_window_state.options.data_is_loading {
+            ui.set_cursor_icon(egui::CursorIcon::Wait);
+        }
+
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.heading("recoge");
 
@@ -177,23 +193,38 @@ impl eframe::App for MyApp {
                                 ui.strong("Fecha de creación");
                             },
                             |ui| {
-                                *date_rev ^= ui.button(if *date_rev { "⬆" } else { "⬇" })
-				    .on_hover_text(if *date_rev { "Ascendente" } else { "Descendente" })
-				    .clicked();
+                                *date_rev ^= ui
+                                    .button(if *date_rev { "⬆" } else { "⬇" })
+                                    .on_hover_text(if *date_rev {
+                                        "Ascendente"
+                                    } else {
+                                        "Descendente"
+                                    })
+                                    .clicked();
                             },
                         );
                     });
                 })
                 .body(|mut body| {
                     let image_list: Vec<Image> = self.image_list.lock().unwrap().to_vec();
-		    let date_rev = self.image_table_data.date_reversed;
+                    let date_rev = self.image_table_data.date_reversed;
                     if date_rev {
                         for image in image_list.iter().rev() {
-                            self.image_table_row(image, &mut body, upload_window_state, image_info_window_state);
+                            self.image_table_row(
+                                image,
+                                &mut body,
+                                upload_window_state,
+                                image_info_window_state,
+                            );
                         }
                     } else {
                         for image in image_list.iter() {
-                            self.image_table_row(image, &mut body, upload_window_state, image_info_window_state);
+                            self.image_table_row(
+                                image,
+                                &mut body,
+                                upload_window_state,
+                                image_info_window_state,
+                            );
                         }
                     }
                 });
@@ -202,51 +233,62 @@ impl eframe::App for MyApp {
 }
 
 impl MyApp {
-    fn image_table_row(&mut self, image: &Image, body: &mut egui_extras::TableBody, upload_window_state: &mut upload_window::WindowState, image_info_window_state: &mut image_info_window::WindowState) {
-	let row_height = 18.0;
-	//row.set_selected(self.selection.contains(&row_index));
-	//row.set_overline(self.overline && row_index % 7 == 3);
-	body.row(row_height, |mut row| {
+    fn image_table_row(
+        &mut self,
+        image: &Image,
+        body: &mut egui_extras::TableBody,
+        upload_window_state: &mut upload_window::WindowState,
+        image_info_window_state: &mut image_info_window::WindowState,
+    ) {
+        let row_height = 18.0;
+        //row.set_selected(self.selection.contains(&row_index));
+        //row.set_overline(self.overline && row_index % 7 == 3);
+        body.row(row_height, |mut row| {
             row.col(|ui| {
-		let image_name = &image.get_name();
-		ui.label(image_name);
+                let image_name = &image.get_name();
+                ui.label(image_name);
 
-		ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
                     if ui.button("⬆").on_hover_text("Subir a registro").clicked() {
-			//*boolean = !*boolean;
-			println!("Subir {image_name}");
-			upload_window_state.options.image_name =
-                            Some(image_name.to_string());
-			upload_window_state.open = true;
+                        //*boolean = !*boolean;
+                        println!("Subir {image_name}");
+                        upload_window_state.options.image_name = Some(image_name.to_string());
+                        upload_window_state.open = true;
                     }
                     if ui
-			.button("ℹ")
-			.on_hover_text("Información de la imagen")
-			.clicked()
+                        .button("ℹ")
+                        .on_hover_text("Información de la imagen")
+                        .clicked()
                     {
-			println!("Info de {image_name}");
-			self.inspect_image(image.get_digest_value());
-			image_info_window_state.options.image_name =
-                            Some(image_name.to_string());
-			image_info_window_state.options.image_digest =
-                            Some(image.get_digest_value());
-			//image_info_window_state.open = true;
+                        if !image_info_window_state.options.data_is_loading {
+                            println!("Info de {image_name}");
+
+                            self.inspect_image(image.get_digest_value());
+                            // TODO remove these
+                            image_info_window_state.options.image_name =
+                                Some(image_name.to_string());
+                            image_info_window_state.options.image_digest =
+                                Some(image.get_digest_value());
+
+                            //image_info_window_state.open = true;
+                            image_info_window_state.options.data_is_loading = true;
+                        }
                     }
-		});
+                });
             });
             row.col(|ui| {
-		ui.label(image.get_human_size());
+                ui.label(image.get_human_size());
             });
             row.col(|ui| {
-		//ui.add(egui::Separator::default().horizontal());
-		ui.label(image.get_id());
+                //ui.add(egui::Separator::default().horizontal());
+                ui.label(image.get_id());
             });
             row.col(|ui| {
-		ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-		ui.label(image.get_date_local());
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                ui.label(image.get_date_local());
             });
 
             //self.toggle_row_selection(row_index, &row.response());
-	});
+        });
     }
 }

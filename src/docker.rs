@@ -2,8 +2,8 @@
 //use std::collections::HashMap;
 
 use bollard::Docker;
-use bollard::query_parameters::ListImagesOptionsBuilder;
 use bollard::models::ImageInspect;
+use bollard::query_parameters::ListImagesOptionsBuilder;
 use chrono::{DateTime, Local, Utc};
 use futures_lite::stream::StreamExt;
 
@@ -78,7 +78,7 @@ impl Image {
         };
         a.to_string()
     }
-    
+
     pub fn get_id(&self) -> String {
         let Some(a) = self.digest.split(':').last() else {
             return String::new();
@@ -148,12 +148,19 @@ pub async fn bollard_image_list() -> Vec<Image> {
     list
 }
 
-pub async fn bollard_image_inspect(image: String) -> ImageInspect {
+pub async fn bollard_image_inspect(image: String) -> Result<ImageInspect, String> {
     let docker = connect().await.unwrap();
     println!("{docker:?}");
     println!("Inspecting image!");
-    let image = &docker.inspect_image(&image).await.unwrap();
-    image.clone()
+    let image = &docker.inspect_image(&image).await;
+    match image {
+        Ok(image) => Ok(image.clone()),
+        Err(x) => {
+            let err_str = x.to_string();
+            eprintln!("{err_str}");
+            return Err(err_str);
+        }
+    }
 }
 
 #[allow(unused)]
