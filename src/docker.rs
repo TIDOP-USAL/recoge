@@ -3,6 +3,7 @@
 
 use bollard::Docker;
 use bollard::query_parameters::ListImagesOptionsBuilder;
+use bollard::models::ImageInspect;
 use chrono::{DateTime, Local, Utc};
 use futures_lite::stream::StreamExt;
 
@@ -62,7 +63,7 @@ pub fn get_image_list()-> Vec<Image> {
 }
 */
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Image {
     pub name: Option<String>, // Optional tag name
     pub size_bytes: u64,
@@ -71,6 +72,13 @@ pub struct Image {
 }
 
 impl Image {
+    pub fn get_digest_value(&self) -> String {
+        let Some(a) = self.digest.split(':').last() else {
+            return String::new();
+        };
+        a.to_string()
+    }
+    
     pub fn get_id(&self) -> String {
         let Some(a) = self.digest.split(':').last() else {
             return String::new();
@@ -138,6 +146,14 @@ pub async fn bollard_image_list() -> Vec<Image> {
     println!("{list:?}");
 
     list
+}
+
+pub async fn bollard_image_inspect(image: String) -> ImageInspect {
+    let docker = connect().await.unwrap();
+    println!("{docker:?}");
+    println!("Inspecting image!");
+    let image = &docker.inspect_image(&image).await.unwrap();
+    image.clone()
 }
 
 #[allow(unused)]

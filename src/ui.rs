@@ -65,6 +65,18 @@ impl MyApp {
             *image_list_loaded_arc.lock().unwrap() = true;
         });
     }
+    pub fn inspect_image(&mut self, image: String) {
+	
+        let image_info_window_state_arc = Arc::clone(&self.image_info_window_state);
+	
+        self.data.fire_async(async move {
+            let image_inspect = docker::bollard_image_inspect(image).await;
+	    
+            let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
+	    image_info_window_state.options.image_inspect = Some(image_inspect);
+	    image_info_window_state.open = true;
+	});
+    }
 }
 
 impl Default for MyApp {
@@ -83,7 +95,7 @@ impl Default for MyApp {
         }
         Self {
             image_list: Arc::new(Mutex::new(image_list)),
-            image_list_loaded: Arc::new(Mutex::new(false)),
+            image_list_loaded: Arc::new(Mutex::new(true)),
             data: Task::new(),
             upload_window_state: Arc::new(Mutex::new(upload_window::WindowState::default())),
             image_info_window_state: Arc::new(Mutex::new(image_info_window::WindowState::default())),
@@ -173,14 +185,14 @@ impl eframe::App for MyApp {
                     });
                 })
                 .body(|mut body| {
-                    let list = self.image_list.lock().unwrap();
+                    let image_list: Vec<Image> = self.image_list.lock().unwrap().to_vec();
 		    let date_rev = self.image_table_data.date_reversed;
                     if date_rev {
-                        for image in list.iter().rev() {
+                        for image in image_list.iter().rev() {
                             self.image_table_row(image, &mut body, upload_window_state, image_info_window_state);
                         }
                     } else {
-                        for image in list.iter() {
+                        for image in image_list.iter() {
                             self.image_table_row(image, &mut body, upload_window_state, image_info_window_state);
                         }
                     }
@@ -190,7 +202,7 @@ impl eframe::App for MyApp {
 }
 
 impl MyApp {
-    fn image_table_row(&self, image: &Image, body: &mut egui_extras::TableBody, upload_window_state: &mut upload_window::WindowState, image_info_window_state: &mut image_info_window::WindowState) {
+    fn image_table_row(&mut self, image: &Image, body: &mut egui_extras::TableBody, upload_window_state: &mut upload_window::WindowState, image_info_window_state: &mut image_info_window::WindowState) {
 	let row_height = 18.0;
 	//row.set_selected(self.selection.contains(&row_index));
 	//row.set_overline(self.overline && row_index % 7 == 3);
@@ -213,13 +225,12 @@ impl MyApp {
 			.clicked()
                     {
 			println!("Info de {image_name}");
+			self.inspect_image(image.get_digest_value());
 			image_info_window_state.options.image_name =
                             Some(image_name.to_string());
-			image_info_window_state.open = true;
-                    }
-
-                    if ui.button("🗑").on_hover_text("Eliminar la imagen").clicked() {
-			println!("Eliminar {image_name}");
+			image_info_window_state.options.image_digest =
+                            Some(image.get_digest_value());
+			//image_info_window_state.open = true;
                     }
 		});
             });
