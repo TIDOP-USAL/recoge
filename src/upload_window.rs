@@ -1,6 +1,20 @@
 use eframe::egui;
 use egui::Vec2b;
 
+pub struct WindowState {
+    pub options: WindowOptions,
+    pub open: bool,
+}
+
+impl Default for WindowState {
+    fn default() -> Self {
+        Self {
+            options: WindowOptions::default(),
+	    open: false,
+        }
+    }
+}
+
 #[derive(Clone, PartialEq)]
 pub struct WindowOptions {
     title: String,
@@ -61,7 +75,7 @@ pub fn show(mut options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool)
     }
 
     let mut window = egui::Window::new(title)
-        .id(egui::Id::new("demo_window_options")) // required since we change the title
+        .id(egui::Id::new("upload_window_options")) // required since we change the title
         .resizable(resizable)
         .constrain(constrain)
         .collapsible(collapsible)

@@ -1,6 +1,7 @@
 use crate::docker;
 use crate::tasks::Task;
 use crate::upload_window;
+use crate::image_info_window;
 use eframe::egui;
 use egui::{Align, Layout, UiBuilder};
 use egui_extras::Column;
@@ -42,8 +43,8 @@ pub struct MyApp {
     image_list: Arc<Mutex<Vec<Image>>>,
     image_list_loaded: Arc<Mutex<bool>>,
     data: Task<()>,
-    upload_window_options: Arc<Mutex<upload_window::WindowOptions>>,
-    upload_window_open: Arc<Mutex<bool>>,
+    upload_window_state: Arc<Mutex<upload_window::WindowState>>,
+    image_info_window_state: Arc<Mutex<image_info_window::WindowState>>,
     image_table_data: ImageTableData,
 }
 
@@ -84,8 +85,8 @@ impl Default for MyApp {
             image_list: Arc::new(Mutex::new(image_list)),
             image_list_loaded: Arc::new(Mutex::new(false)),
             data: Task::new(),
-            upload_window_options: Arc::new(Mutex::new(upload_window::WindowOptions::default())),
-            upload_window_open: Arc::new(Mutex::new(false)),
+            upload_window_state: Arc::new(Mutex::new(upload_window::WindowState::default())),
+            image_info_window_state: Arc::new(Mutex::new(image_info_window::WindowState::default())),
             image_table_data: ImageTableData {
                 date_reversed: true,
             },
@@ -95,11 +96,13 @@ impl Default for MyApp {
 
 impl eframe::App for MyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        let upload_window_options_arc = Arc::clone(&self.upload_window_options);
-        let mut upload_window_options = &mut *upload_window_options_arc.lock().unwrap();
-        let upload_window_open_arc = Arc::clone(&self.upload_window_open);
-        let mut upload_window_open = &mut *upload_window_open_arc.lock().unwrap();
-        upload_window::show(&mut upload_window_options, ui, &mut upload_window_open);
+        let upload_window_state_arc = Arc::clone(&self.upload_window_state);
+        let upload_window_state = &mut *upload_window_state_arc.lock().unwrap();
+        upload_window::show(&mut upload_window_state.options, ui, &mut upload_window_state.open);
+        let image_info_window_state_arc = Arc::clone(&self.image_info_window_state);
+        let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
+        image_info_window::show(&mut image_info_window_state.options, ui, &mut image_info_window_state.open);
+	//println!("{}",image_info_window_state.open);
 	
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.heading("recoge");
@@ -174,11 +177,11 @@ impl eframe::App for MyApp {
 		    let date_rev = self.image_table_data.date_reversed;
                     if date_rev {
                         for image in list.iter().rev() {
-                            self.image_table_row(image, &mut body, upload_window_options, upload_window_open);
+                            self.image_table_row(image, &mut body, upload_window_state, image_info_window_state);
                         }
                     } else {
                         for image in list.iter() {
-                            self.image_table_row(image, &mut body, upload_window_options, upload_window_open);
+                            self.image_table_row(image, &mut body, upload_window_state, image_info_window_state);
                         }
                     }
                 });
@@ -187,7 +190,7 @@ impl eframe::App for MyApp {
 }
 
 impl MyApp {
-    fn image_table_row(&self, image: &Image, body: &mut egui_extras::TableBody, upload_window_options: &mut upload_window::WindowOptions, upload_window_open: &mut bool) {
+    fn image_table_row(&self, image: &Image, body: &mut egui_extras::TableBody, upload_window_state: &mut upload_window::WindowState, image_info_window_state: &mut image_info_window::WindowState) {
 	let row_height = 18.0;
 	//row.set_selected(self.selection.contains(&row_index));
 	//row.set_overline(self.overline && row_index % 7 == 3);
@@ -200,9 +203,9 @@ impl MyApp {
                     if ui.button("⬆").on_hover_text("Subir a registro").clicked() {
 			//*boolean = !*boolean;
 			println!("Subir {image_name}");
-			upload_window_options.image_name =
+			upload_window_state.options.image_name =
                             Some(image_name.to_string());
-			*upload_window_open = true;
+			upload_window_state.open = true;
                     }
                     if ui
 			.button("ℹ")
@@ -210,6 +213,9 @@ impl MyApp {
 			.clicked()
                     {
 			println!("Info de {image_name}");
+			image_info_window_state.options.image_name =
+                            Some(image_name.to_string());
+			image_info_window_state.open = true;
                     }
 
                     if ui.button("🗑").on_hover_text("Eliminar la imagen").clicked() {
