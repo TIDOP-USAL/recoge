@@ -56,8 +56,9 @@ impl MyApp {
         self.data.fire_async(async move {
             //tokio::task::spawn_local(async move {
             *image_list_loaded_arc.lock().unwrap() = false;
-            let mut images = docker::bollard_image_list().await;
-
+            let Ok(mut images) = docker::bollard_image_list().await else {
+		return;
+	    };
             let mut image_list = image_list_arc.lock().unwrap();
             image_list.clear();
             image_list.append(&mut images);

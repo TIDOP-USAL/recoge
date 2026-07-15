@@ -127,12 +127,19 @@ pub async fn connect() -> Result<Docker, ()> {
     Ok(docker)
 }
 
-pub async fn bollard_image_list() -> Vec<Image> {
+pub async fn bollard_image_list() -> Result<Vec<Image>, String> {
     let docker = connect().await.unwrap();
     println!("{docker:?}");
     println!("Getting image list!");
     let options = ListImagesOptionsBuilder::default().all(false).build();
-    let images = &docker.list_images(Some(options)).await.unwrap();
+    let images = match docker.list_images(Some(options)).await {
+	Ok(images) => images,
+	Err(x) => {
+            let err_str = x.to_string();
+            eprintln!("{err_str}");
+            return Err(err_str);
+	}
+    };
 
     let mut list = Vec::new();
     for image in images {
@@ -143,9 +150,9 @@ pub async fn bollard_image_list() -> Vec<Image> {
             date: DateTime::from_timestamp_secs(image.created).unwrap(),
         });
     }
-    println!("{list:?}");
+    //println!("{list:?}");
 
-    list
+    Ok(list)
 }
 
 pub async fn bollard_image_inspect(image: String) -> Result<ImageInspect, String> {
