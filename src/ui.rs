@@ -97,11 +97,16 @@ impl MyApp {
     pub fn update_list(&mut self) {
         let image_list_arc = Arc::clone(&self.image_list);
         let image_list_loaded_arc = Arc::clone(&self.image_list_loaded);
+        let toasts_arc = Arc::clone(&self.toasts);
 
         self.data.fire_async(async move {
             //tokio::task::spawn_local(async move {
             *image_list_loaded_arc.lock().unwrap() = false;
             let Ok(mut images) = docker::bollard_image_list().await else {
+                let mut toasts = toasts_arc.lock().unwrap();
+                toasts
+                    .error("Error de conexión. Comprueba que Docker está funcionando.")
+                    .duration(std::time::Duration::from_secs(3));
                 return;
             };
             let mut image_list = image_list_arc.lock().unwrap();
@@ -113,6 +118,7 @@ impl MyApp {
     }
     pub fn inspect_image(&mut self, image: String) {
         let image_info_window_state_arc = Arc::clone(&self.image_info_window_state);
+        let toasts_arc = Arc::clone(&self.toasts);
 
         self.data.fire_async(async move {
             let result = docker::bollard_image_inspect(image).await;
@@ -123,6 +129,11 @@ impl MyApp {
             if let Ok(image_inspect) = result {
                 image_info_window_state.options.image_inspect = Some(image_inspect);
                 image_info_window_state.open = true;
+            } else {
+                let mut toasts = toasts_arc.lock().unwrap();
+                toasts
+                    .error("Error de conexión. Comprueba que Docker está funcionando.")
+                    .duration(std::time::Duration::from_secs(3));
             }
         });
     }

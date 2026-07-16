@@ -135,17 +135,25 @@ pub async fn connect() -> Result<Docker, ()> {
             }
         }
     }
-    let Ok(docker) = docker else {
-        println!("No se pudo conectar");
-        return Err(());
+    let docker = match docker {
+        Ok(x) => x,
+        Err(x) => {
+            println!("Can't connect: {x:?}");
+            return Err(());
+        }
     };
     println!("Connected!");
+    //println!("{docker:?}");
     Ok(docker)
 }
 
 pub async fn bollard_image_list() -> Result<Vec<Image>, String> {
-    let docker = connect().await.unwrap();
-    println!("{docker:?}");
+    let docker = match connect().await {
+        Ok(x) => x,
+        Err(()) => {
+            return Err(format!("No Docker connection"));
+        }
+    };
     println!("Getting image list!");
     let options = ListImagesOptionsBuilder::default().all(false).build();
     let images = match docker.list_images(Some(options)).await {
@@ -172,8 +180,12 @@ pub async fn bollard_image_list() -> Result<Vec<Image>, String> {
 }
 
 pub async fn bollard_image_inspect(image: String) -> Result<ImageInspect, String> {
-    let docker = connect().await.unwrap();
-    println!("{docker:?}");
+    let docker = match connect().await {
+        Ok(x) => x,
+        Err(()) => {
+            return Err(format!("No Docker connection"));
+        }
+    };
     println!("Inspecting image!");
     let image = &docker.inspect_image(&image).await;
     match image {
