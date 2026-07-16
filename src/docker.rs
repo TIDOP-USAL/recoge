@@ -120,7 +120,23 @@ pub async fn connect() -> Result<Docker, ()> {
             docker = Docker::connect_with_podman_defaults();
         }
     }
+    #[cfg(target_family = "unix")]
+    {
+        if docker.is_err() {
+            println!("Connecting with UNIX sockets...");
+            docker = Docker::connect_with_socket_defaults();
+            if docker.is_err() {
+                println!("Connecting with macOS UNIX sockets...");
+                docker = Docker::connect_with_socket(
+                    "~/.docker/run/docker.sock",
+                    120,
+                    bollard::API_DEFAULT_VERSION,
+                );
+            }
+        }
+    }
     let Ok(docker) = docker else {
+        println!("No se pudo conectar");
         return Err(());
     };
     println!("Connected!");
@@ -133,12 +149,12 @@ pub async fn bollard_image_list() -> Result<Vec<Image>, String> {
     println!("Getting image list!");
     let options = ListImagesOptionsBuilder::default().all(false).build();
     let images = match docker.list_images(Some(options)).await {
-	Ok(images) => images,
-	Err(x) => {
+        Ok(images) => images,
+        Err(x) => {
             let err_str = x.to_string();
             eprintln!("{err_str}");
             return Err(err_str);
-	}
+        }
     };
 
     let mut list = Vec::new();
