@@ -11,6 +11,7 @@ chrono = "0.4.45"
 dark-light = "2.0.0"
 eframe = { version = "0.34.3", features = [
   "default",
+  "persistence", # for storage_dir
   "__screenshot", # __screenshot is so we can dump a screenshot using EFRAME_SCREENSHOT_TO
 ] }
 
@@ -22,6 +23,8 @@ futures-lite = "2.6.1"
 futures-util = "0.3.32"
 humansize = "2.1.3"
 log = "0.4.33"
+secrecy = { version = "0.10.3", features = ["serde"] }
+serde-saphyr = { version = "0.0.29", default-features = false, features = ["serialize", "deserialize"] }
 serde = { version = "1.0.228", features = ["serde_derive"] }
 serde_json = "1.0.150"
 tokio = { version = "1.52.3", features = ["rt", "time", "net", "rt-multi-thread"] }

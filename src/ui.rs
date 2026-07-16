@@ -1,7 +1,9 @@
+use crate::configuration as config;
 use crate::docker;
 use crate::image_info_window;
 use crate::tasks::Task;
 use crate::upload_window;
+use config::AppConfig;
 use eframe::egui;
 use egui::{Align, Layout, UiBuilder};
 use egui_extras::Column;
@@ -39,7 +41,21 @@ pub struct ImageTableData {
     date_reversed: bool,
 }
 
+#[derive(PartialEq)]
+pub enum ConfigState {
+    NotLoaded,
+    Loading,
+    Loaded,
+}
+
+pub struct GlobalData {
+    pub version: String,
+    pub config_state: ConfigState,
+    pub config: AppConfig,
+}
+
 pub struct MyApp {
+    global_data: Arc<Mutex<GlobalData>>,
     image_list: Arc<Mutex<Vec<Image>>>,
     image_list_loaded: Arc<Mutex<bool>>,
     data: Task<()>,
@@ -49,6 +65,24 @@ pub struct MyApp {
 }
 
 impl MyApp {
+    pub fn get_config(&mut self) {
+        let global_data_arc = Arc::clone(&self.global_data);
+
+        self.data.fire_async(async move {
+            let Ok(config) = AppConfig::get_config() else {
+                //global_data.config_state = ConfigState::NotLoaded;
+                // This would trigger this fn again
+                return;
+            };
+            let mut global_data = global_data_arc.lock().unwrap();
+            global_data.config = config;
+            global_data.config_state = ConfigState::Loaded;
+            println!("Config loaded!");
+            if global_data.config.is_missing_credentials() {
+                println!("Config is missing credentials");
+            }
+        });
+    }
     pub fn update_list(&mut self) {
         let image_list_arc = Arc::clone(&self.image_list);
         let image_list_loaded_arc = Arc::clone(&self.image_list_loaded);
@@ -57,8 +91,8 @@ impl MyApp {
             //tokio::task::spawn_local(async move {
             *image_list_loaded_arc.lock().unwrap() = false;
             let Ok(mut images) = docker::bollard_image_list().await else {
-		return;
-	    };
+                return;
+            };
             let mut image_list = image_list_arc.lock().unwrap();
             image_list.clear();
             image_list.append(&mut images);
@@ -90,7 +124,7 @@ impl Default for MyApp {
             image_list.push(Image {
                 name: Some(format!("Test {i}")),
                 size_bytes: i * 1000,
-                digest: String::new(),
+                digest: "b889dc1ed5c1".to_string(),
                 date: chrono::DateTime::<chrono::Utc>::from_timestamp_secs(
                     (i * 1000).try_into().unwrap(),
                 )
@@ -98,6 +132,11 @@ impl Default for MyApp {
             });
         }
         Self {
+            global_data: Arc::new(Mutex::new(GlobalData {
+                config_state: ConfigState::NotLoaded,
+                config: config::AppConfig::default(),
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            })),
             image_list: Arc::new(Mutex::new(image_list)),
             image_list_loaded: Arc::new(Mutex::new(true)),
             data: Task::new(),
@@ -114,6 +153,13 @@ impl Default for MyApp {
 
 impl eframe::App for MyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let global_data_arc = Arc::clone(&self.global_data);
+        let mut global_data = global_data_arc.lock().unwrap();
+        if global_data.config_state == ConfigState::NotLoaded {
+            global_data.config_state = ConfigState::Loading;
+            self.get_config();
+        }
+
         let upload_window_state_arc = Arc::clone(&self.upload_window_state);
         let upload_window_state = &mut *upload_window_state_arc.lock().unwrap();
         upload_window::show(
@@ -134,7 +180,7 @@ impl eframe::App for MyApp {
         }
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            ui.heading("recoge");
+            ui.heading(format!("recoge v{}", global_data.version));
 
             ui.horizontal(|ui| {
                 if !*self.image_list_loaded.lock().unwrap() {
