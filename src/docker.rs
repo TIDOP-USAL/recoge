@@ -126,9 +126,16 @@ pub async fn connect() -> Result<Docker, ()> {
             println!("Connecting with UNIX sockets...");
             docker = Docker::connect_with_socket_defaults();
             if docker.is_err() {
+		let home_dir = match std::env::home_dir() {
+		    Some(x) => {
+			let str = x.into_os_string();
+			str.to_str().unwrap_or("~").to_string()
+		    },
+		    None => "~".to_string(),
+		};
                 println!("Connecting with macOS UNIX sockets...");
                 docker = Docker::connect_with_socket(
-                    "~/.docker/run/docker.sock",
+                    &format!("{home_dir}/.docker/run/docker.sock"),
                     120,
                     bollard::API_DEFAULT_VERSION,
                 );
