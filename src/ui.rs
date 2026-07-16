@@ -8,6 +8,7 @@ use eframe::egui;
 use egui::{Align, Layout, UiBuilder};
 use egui_extras::Column;
 use egui_extras::TableBuilder;
+use egui_notify::Toasts;
 use std::sync::{Arc, Mutex};
 
 use docker::Image;
@@ -56,6 +57,7 @@ pub struct GlobalData {
 
 pub struct MyApp {
     global_data: Arc<Mutex<GlobalData>>,
+    toasts: Arc<Mutex<Toasts>>,
     image_list: Arc<Mutex<Vec<Image>>>,
     image_list_loaded: Arc<Mutex<bool>>,
     data: Task<()>,
@@ -67,11 +69,16 @@ pub struct MyApp {
 impl MyApp {
     pub fn get_config(&mut self) {
         let global_data_arc = Arc::clone(&self.global_data);
+        let toasts_arc = Arc::clone(&self.toasts);
 
         self.data.fire_async(async move {
             let Ok(config) = AppConfig::get_config() else {
                 //global_data.config_state = ConfigState::NotLoaded;
                 // This would trigger this fn again
+                let mut toasts = toasts_arc.lock().unwrap();
+                toasts
+                    .error("No se ha podido cargar la configuración")
+                    .duration(std::time::Duration::from_secs(5));
                 return;
             };
             let mut global_data = global_data_arc.lock().unwrap();
@@ -79,6 +86,10 @@ impl MyApp {
             global_data.config_state = ConfigState::Loaded;
             println!("Config loaded!");
             if global_data.config.is_missing_credentials() {
+                let mut toasts = toasts_arc.lock().unwrap();
+                toasts
+                    .warning("No se ha configurado el usuario del registro")
+                    .duration(std::time::Duration::from_secs(5));
                 println!("Config is missing credentials");
             }
         });
@@ -137,6 +148,9 @@ impl Default for MyApp {
                 config: config::AppConfig::default(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
             })),
+            toasts: Arc::new(Mutex::new(
+                Toasts::default().with_anchor(egui_notify::Anchor::BottomRight),
+            )),
             image_list: Arc::new(Mutex::new(image_list)),
             image_list_loaded: Arc::new(Mutex::new(true)),
             data: Task::new(),
@@ -160,6 +174,10 @@ impl eframe::App for MyApp {
             self.get_config();
         }
 
+        let toasts_arc = Arc::clone(&self.toasts);
+        let mut toasts = toasts_arc.lock().unwrap();
+        toasts.show(ui);
+
         let upload_window_state_arc = Arc::clone(&self.upload_window_state);
         let upload_window_state = &mut *upload_window_state_arc.lock().unwrap();
         upload_window::show(
@@ -182,17 +200,6 @@ impl eframe::App for MyApp {
         egui::CentralPanel::default().show_inside(ui, |ui| {
             ui.heading(format!("recoge v{}", global_data.version));
 
-            ui.horizontal(|ui| {
-                if !*self.image_list_loaded.lock().unwrap() {
-                    ui.label("Cargando lista ");
-                    ui.spinner();
-                } else {
-                    ui.label("Lista cargada");
-                }
-            });
-
-            ui.label("Imágenes locales:".to_string());
-
             let mut reset_btn_ui = ui.new_child(
                 UiBuilder::new()
                     .max_rect(ui.max_rect())
@@ -205,6 +212,19 @@ impl eframe::App for MyApp {
             {
                 self.update_list();
             }
+
+            ui.separator();
+
+            ui.horizontal(|ui| {
+                if !*self.image_list_loaded.lock().unwrap() {
+                    ui.label("Cargando lista ");
+                    ui.spinner();
+                } else {
+                    ui.label("Lista cargada");
+                }
+            });
+
+            ui.label("Imágenes locales:".to_string());
 
             let date_rev = &mut self.image_table_data.date_reversed;
             let available_height = ui.available_height();
