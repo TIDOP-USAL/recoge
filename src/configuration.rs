@@ -65,37 +65,24 @@ impl AppConfig {
         // Si no existe fichero, crear dir+fichero y guardar AppConfig::default();
         if !file_path.exists() {
             println!("Config file does not exist");
-            let mut output_yaml = String::new();
-            let mut ser = serde_saphyr::Serializer::new(&mut output_yaml);
-            let config = AppConfig::default();
-            if let Err(x) = config.serialize(&mut ser) {
-                eprintln!("Error when serializing default config: {x:?}");
-                return Err(());
-            }
-            //println!("{output_yaml}");
-            if let Err(x) = std::fs::write(&file_path, output_yaml) {
-                eprintln!("Error when writing default config file: {x:?}");
-                return Err(());
-            }
-            println!(
-                "Config file created OK for v{}.{}",
-                config.version.0, config.version.1
-            );
+	    self::overwrite_default_config()?;
         }
 
         // Read and parse config file
         println!("Reading config file...");
-        let yaml_input = match std::fs::read_to_string(file_path) {
-            Ok(x) => x,
-            Err(x) => {
-                eprintln!("Error when reading config file: {x:?}");
-                return Err(());
-            }
+        let Ok(yaml_input) = std::fs::read_to_string(file_path) else {
+            println!("Fatal: can't read config file");
+	    return Err(());
         };
-        let config: Result<AppConfig, _> = serde_saphyr::from_str(&yaml_input);
+	let mut config = match serde_saphyr::from_str(&yaml_input) {
+	    Ok(x) => x,
+	    Err(x) => {
+		println!("Error when parsing config file: {x:?}");
+		self::overwrite_default_config();
+		AppConfig::default()
+	    }
+	};
         println!("{config:?}");
-
-        let config = AppConfig::default();
         Ok(config)
     }
 
@@ -135,3 +122,26 @@ pub fn get_config_file_path() -> Result<PathBuf, ()> {
     file_path = p.into();
     Ok(file_path)
 }
+
+pub fn overwrite_default_config() -> Result<(),()> {
+    let file_path = get_config_file_path()?;
+    println!("Writing default config file");
+    let mut output_yaml = String::new();
+    let mut ser = serde_saphyr::Serializer::new(&mut output_yaml);
+    let config = AppConfig::default();
+    if let Err(x) = config.serialize(&mut ser) {
+        println!("Error when serializing default config: {x:?}");
+        return Err(());
+    }
+    //println!("{output_yaml}");
+    if let Err(x) = std::fs::write(&file_path, output_yaml) {
+        println!("Error when writing default config file: {x:?}");
+        return Err(());
+    }
+    println!(
+        "Config file created OK for v{}.{}",
+        config.version.0, config.version.1
+    );
+    Ok(())
+}
+
