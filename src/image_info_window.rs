@@ -28,7 +28,6 @@ pub struct WindowOptions {
     anchored: bool,
     anchor: egui::Align2,
     anchor_offset: egui::Vec2,
-    should_close: bool,
     pub data_is_loading: bool,
     pub image_name: Option<String>,
     pub image_digest: Option<String>,
@@ -49,7 +48,6 @@ impl Default for WindowOptions {
             anchored: false,
             anchor: egui::Align2::RIGHT_TOP,
             anchor_offset: egui::Vec2::ZERO,
-            should_close: false,
             data_is_loading: false,
             image_name: None,
             image_digest: None,
@@ -59,11 +57,6 @@ impl Default for WindowOptions {
 }
 
 pub fn show(mut options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool) {
-    if options.should_close {
-        *open = false;
-        options.should_close = false;
-        return;
-    }
     let WindowOptions {
         title,
         title_bar,
@@ -76,16 +69,11 @@ pub fn show(mut options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool)
         anchored,
         anchor,
         anchor_offset,
-        should_close,
         data_is_loading,
         image_name: _,
         image_digest: _,
         image_inspect: _,
     } = options.clone();
-    if should_close {
-        *open = false;
-        return;
-    }
 
     let enabled = !data_is_loading;
     if !enabled {
@@ -127,7 +115,6 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         anchored: _,
         anchor: _,
         anchor_offset: _,
-        should_close,
         data_is_loading: _,
         image_name,
         image_digest,
@@ -143,7 +130,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         return;
     };
     let Some(image_inspect) = image_inspect else {
-        *should_close = true;
+        ui.close_kind(egui::UiKind::Window);
         eprintln!("Window opened without image_inspect");
         return;
     };

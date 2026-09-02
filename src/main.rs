@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![expect(rustdoc::missing_crate_level_docs)] // it's an example
 
+pub mod config_window;
 pub mod configuration;
 pub mod docker;
 pub mod image_info_window;

@@ -1,3 +1,4 @@
+use crate::config_window;
 use crate::configuration as config;
 use crate::docker;
 use crate::image_info_window;
@@ -63,6 +64,7 @@ pub struct MyApp {
     data: Task<()>,
     upload_window_state: Arc<Mutex<upload_window::WindowState>>,
     image_info_window_state: Arc<Mutex<image_info_window::WindowState>>,
+    config_window_state: Arc<Mutex<config_window::WindowState>>,
     image_table_data: ImageTableData,
 }
 
@@ -166,6 +168,7 @@ impl Default for MyApp {
             image_list_loaded: Arc::new(Mutex::new(true)),
             data: Task::new(),
             upload_window_state: Arc::new(Mutex::new(upload_window::WindowState::default())),
+            config_window_state: Arc::new(Mutex::new(config_window::WindowState::default())),
             image_info_window_state: Arc::new(
                 Mutex::new(image_info_window::WindowState::default()),
             ),
@@ -203,6 +206,13 @@ impl eframe::App for MyApp {
             ui,
             &mut image_info_window_state.open,
         );
+        let config_window_state_arc = Arc::clone(&self.config_window_state);
+        let config_window_state = &mut *config_window_state_arc.lock().unwrap();
+        config_window::show(
+            &mut config_window_state.options,
+            ui,
+            &mut config_window_state.open,
+        );
         //println!("{}",image_info_window_state.open);
         if image_info_window_state.options.data_is_loading {
             ui.set_cursor_icon(egui::CursorIcon::Wait);
@@ -222,6 +232,15 @@ impl eframe::App for MyApp {
                 .clicked()
             {
                 self.update_list();
+            }
+            if reset_btn_ui
+                .button("⚙")
+                .on_hover_text("Configuración")
+                .clicked()
+            {
+                config_window_state.options.app_config_copy = global_data.config.clone();
+                config_window_state.options.global_data_arc = Arc::clone(&self.global_data);
+                config_window_state.open = true;
             }
 
             ui.separator();

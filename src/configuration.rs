@@ -1,40 +1,23 @@
-use secrecy::SecretString;
 use serde::Serialize;
 use std::path::PathBuf;
 
 const CONFIG_FILE_NAME: &str = "config.yml";
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 pub struct AppConfig {
     pub version: (u64, u64),
-    pub remote_url: Option<String>,
-    pub user: Option<String>,
-    #[serde(serialize_with = "serialize_optional_secret_string")]
-    pub password: Option<SecretString>,
-}
-
-fn serialize_optional_secret_string<S>(
-    data: &Option<SecretString>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    if let Some(secret) = data {
-        use secrecy::ExposeSecret;
-        serializer.serialize_str(secret.expose_secret())
-    } else {
-        serializer.serialize_none()
-    }
+    pub remote_url: String,
+    pub user: String,
+    pub password: String,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
             version: (1, 0),
-            remote_url: Some("rc.tidop.es".to_string()),
-            user: None,
-            password: None,
+            remote_url: "cr.tidop.es".to_string(),
+            user: String::new(),
+            password: String::new(),
         }
     }
 }
@@ -43,7 +26,7 @@ impl Default for AppConfig {
 impl AppConfig {
     #[must_use]
     pub fn is_missing_credentials(&self) -> bool {
-        self.user.is_none() || self.password.is_none()
+        self.user.is_empty() || self.password.is_empty()
     }
 
     // Using https://docs.rs/eframe/latest/eframe/fn.storage_dir.html
@@ -65,23 +48,23 @@ impl AppConfig {
         // Si no existe fichero, crear dir+fichero y guardar AppConfig::default();
         if !file_path.exists() {
             println!("Config file does not exist");
-	    self::overwrite_default_config()?;
+            self::overwrite_default_config()?;
         }
 
         // Read and parse config file
         println!("Reading config file...");
         let Ok(yaml_input) = std::fs::read_to_string(file_path) else {
             println!("Fatal: can't read config file");
-	    return Err(());
+            return Err(());
         };
-	let mut config = match serde_saphyr::from_str(&yaml_input) {
-	    Ok(x) => x,
-	    Err(x) => {
-		println!("Error when parsing config file: {x:?}");
-		self::overwrite_default_config();
-		AppConfig::default()
-	    }
-	};
+        let mut config = match serde_saphyr::from_str(&yaml_input) {
+            Ok(x) => x,
+            Err(x) => {
+                println!("Error when parsing config file: {x:?}");
+                self::overwrite_default_config();
+                AppConfig::default()
+            }
+        };
         println!("{config:?}");
         Ok(config)
     }
@@ -123,7 +106,7 @@ pub fn get_config_file_path() -> Result<PathBuf, ()> {
     Ok(file_path)
 }
 
-pub fn overwrite_default_config() -> Result<(),()> {
+pub fn overwrite_default_config() -> Result<(), ()> {
     let file_path = get_config_file_path()?;
     println!("Writing default config file");
     let mut output_yaml = String::new();
@@ -144,4 +127,3 @@ pub fn overwrite_default_config() -> Result<(),()> {
     );
     Ok(())
 }
-
