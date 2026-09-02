@@ -4,6 +4,7 @@ use crate::docker;
 use crate::image_info_window;
 use crate::tasks::Task;
 use crate::upload_window;
+use crate::zot;
 use config::AppConfig;
 use eframe::egui;
 use egui::{Align, Layout, UiBuilder};
@@ -90,7 +91,7 @@ impl MyApp {
             if global_data.config.is_missing_credentials() {
                 let mut toasts = toasts_arc.lock().unwrap();
                 toasts
-                    .warning("No se ha configurado el usuario del registro")
+                    .warning("No se ha configurado el usuario del Registro")
                     .duration(std::time::Duration::from_secs(5));
                 println!("Config is missing credentials");
             }
@@ -137,6 +138,33 @@ impl MyApp {
                     .error("Error de conexión. Comprueba que Docker está funcionando.")
                     .duration(std::time::Duration::from_secs(3));
             }
+        });
+    }
+
+    pub fn load_remote_list(&mut self, config: AppConfig) {
+        let toasts_arc = Arc::clone(&self.toasts);
+
+        self.data.fire_async(async move {
+            let Ok(mut client) = zot::Client::new(&config) else {
+                let mut toasts = toasts_arc.lock().unwrap();
+                toasts
+                    .error("Error de conexión. Comprueba las credenciales del Registro.")
+                    .duration(std::time::Duration::from_secs(3));
+                return;
+            };
+            println!("Cargando lista remota");
+            let list = match client.get_image_list().await {
+                Ok(x) => x,
+                Err(x) => {
+                    println!("error: {x:?}");
+                    let mut toasts = toasts_arc.lock().unwrap();
+                    toasts
+                        .error("Error de conexión. Comprueba las credenciales del Registro.")
+                        .duration(std::time::Duration::from_secs(3));
+                    return;
+                }
+            };
+            println!("{list:?}");
         });
     }
 }
@@ -232,6 +260,13 @@ impl eframe::App for MyApp {
                 .clicked()
             {
                 self.update_list();
+            }
+            if reset_btn_ui
+                .button("R")
+                .on_hover_text("Lista de imágenes remotas")
+                .clicked()
+            {
+                self.load_remote_list(global_data.config.clone());
             }
             if reset_btn_ui
                 .button("⚙")
@@ -346,7 +381,7 @@ impl MyApp {
                 ui.label(image_name);
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
-                    if ui.button("⬆").on_hover_text("Subir a registro").clicked() {
+                    if ui.button("⬆").on_hover_text("Subir a Registro").clicked() {
                         //*boolean = !*boolean;
                         println!("Subir {image_name}");
                         upload_window_state.options.image_name = Some(image_name.to_string());
