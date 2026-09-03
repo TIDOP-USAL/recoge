@@ -1,6 +1,6 @@
 use crate::config_window;
 use crate::configuration as config;
-use crate::docker;
+use crate::container;
 use crate::image_info_window;
 use crate::tasks::Task;
 use crate::upload_window;
@@ -13,7 +13,7 @@ use egui_extras::TableBuilder;
 use egui_notify::Toasts;
 use std::sync::{Arc, Mutex};
 
-use docker::Image;
+use container::Image;
 
 pub fn ui_start() -> eframe::Result {
     let mut options = eframe::NativeOptions {
@@ -105,10 +105,10 @@ impl MyApp {
         self.data.fire_async(async move {
             //tokio::task::spawn_local(async move {
             *image_list_loaded_arc.lock().unwrap() = false;
-            let Ok(mut images) = docker::bollard_image_list().await else {
+            let Ok(mut images) = container::bollard_image_list().await else {
                 let mut toasts = toasts_arc.lock().unwrap();
                 toasts
-                    .error("Error de conexión. Comprueba que Docker está funcionando.")
+                    .error("Error de conexión. Comprueba que Container está funcionando.")
                     .duration(std::time::Duration::from_secs(3));
                 return;
             };
@@ -124,18 +124,31 @@ impl MyApp {
         let toasts_arc = Arc::clone(&self.toasts);
 
         self.data.fire_async(async move {
-            let result = docker::bollard_image_inspect(image).await;
+            let result = container::bollard_image_inspect(image).await;
 
             let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
             image_info_window_state.options.data_is_loading = false;
 
             if let Ok(image_inspect) = result {
-                image_info_window_state.options.image_inspect = Some(image_inspect);
+                image_info_window_state.options.image_inspect = Some(image_inspect.clone());
+
+                let Ok(image) = container::Image::try_from(&image_inspect) else {
+                    let mut toasts = toasts_arc.lock().unwrap();
+                    toasts
+                        .error("Error al leer la información de imagen.")
+                        .duration(std::time::Duration::from_secs(3));
+                    return;
+                };
+                //image_info_window_state.options.image_name = Some(image_name.to_string());
+                //image_info_window_state.options.image_digest = Some(image.get_digest_value());
+                image_info_window_state.options.image_name = Some(image.get_image_name());
+                image_info_window_state.options.image_digest = Some(image.get_digest_value());
+
                 image_info_window_state.open = true;
             } else {
                 let mut toasts = toasts_arc.lock().unwrap();
                 toasts
-                    .error("Error de conexión. Comprueba que Docker está funcionando.")
+                    .error("Error de conexión. Comprueba que Container está funcionando.")
                     .duration(std::time::Duration::from_secs(3));
             }
         });
@@ -164,7 +177,7 @@ impl MyApp {
                     return;
                 }
             };
-            println!("{list:?}");
+            println!("{list:#?}");
         });
     }
 }
@@ -174,8 +187,11 @@ impl Default for MyApp {
         let mut image_list = Vec::new();
         for i in 1..4 {
             image_list.push(Image {
-                name: Some(format!("Test {i}")),
-                size_bytes: i * 1000,
+                repository_info: Some(container::RepositoryInfo {
+                    repository: format!("Test {i}"),
+                    tag: "notag".to_string(),
+                }),
+                size_bytes: Some(i * 1000),
                 digest: "b889dc1ed5c1".to_string(),
                 date: chrono::DateTime::<chrono::Utc>::from_timestamp_secs(
                     (i * 1000).try_into().unwrap(),
@@ -377,7 +393,7 @@ impl MyApp {
         //row.set_overline(self.overline && row_index % 7 == 3);
         body.row(row_height, |mut row| {
             row.col(|ui| {
-                let image_name = &image.get_name();
+                let image_name = &image.get_image_name();
                 ui.label(image_name);
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
@@ -396,11 +412,6 @@ impl MyApp {
                             println!("Info de {image_name}");
 
                             self.inspect_image(image.get_digest_value());
-                            // TODO remove these
-                            image_info_window_state.options.image_name =
-                                Some(image_name.to_string());
-                            image_info_window_state.options.image_digest =
-                                Some(image.get_digest_value());
 
                             //image_info_window_state.open = true;
                             image_info_window_state.options.data_is_loading = true;

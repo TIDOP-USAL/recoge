@@ -56,7 +56,7 @@ impl Default for WindowOptions {
     }
 }
 
-pub fn show(mut options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool) {
+pub fn show(options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool) {
     /*
     let WindowOptions {
     task_scheduler: _,

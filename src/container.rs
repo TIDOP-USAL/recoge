@@ -1,11 +1,12 @@
 //use std::process::Command;
 //use std::collections::HashMap;
 
-use bollard::Docker;
 use bollard::models::ImageInspect;
 use bollard::query_parameters::ListImagesOptionsBuilder;
+use bollard::{Docker, plugin::ImageSummary};
 use chrono::{DateTime, Local, Utc};
 use futures_lite::stream::StreamExt;
+use serde::{Deserialize, Serialize};
 
 /*
 #[allow(non_snake_case, non_camel_case_types)]
@@ -63,12 +64,84 @@ pub fn get_image_list()-> Vec<Image> {
 }
 */
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Image {
-    pub name: Option<String>, // Optional tag name
-    pub size_bytes: u64,
+    pub repository_info: Option<RepositoryInfo>, // Optional repository name:tag
+    pub size_bytes: Option<i64>,
     pub digest: String, // Full sha256:...
     pub date: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RepositoryInfo {
+    pub repository: String,
+    pub tag: String,
+}
+
+impl TryFrom<&ImageSummary> for Image {
+    type Error = String;
+
+    fn try_from(image: &ImageSummary) -> Result<Self, Self::Error> {
+        let mut repository_info = None;
+        if let Some(image) = image.repo_tags.first().cloned() {
+            // repo:tag (Optional)
+            let mut repo_parts = image.split(':');
+            let Some(repository_str) = repo_parts.next() else {
+                return Err("invalid img".to_string());
+            };
+            let Some(tag_str) = repo_parts.last() else {
+                return Err("invalid img".to_string());
+            };
+            repository_info = Some(RepositoryInfo {
+                repository: repository_str.to_string(),
+                tag: tag_str.to_string(),
+            });
+        }
+        Ok(Image {
+            repository_info,
+            size_bytes: Some(image.size),
+            digest: image.id.clone(),
+            date: DateTime::from_timestamp_secs(image.created).unwrap(),
+        })
+    }
+}
+
+impl TryFrom<&ImageInspect> for Image {
+    type Error = String;
+
+    fn try_from(image: &ImageInspect) -> Result<Self, Self::Error> {
+        let mut repository_info = None;
+        if let Some(repo_tags) = image.repo_tags.clone()
+            && let Some(image) = repo_tags.first().cloned()
+        {
+            // repo:tag (Optional)
+            let mut repo_parts = image.split(':');
+            let Some(repository_str) = repo_parts.next() else {
+                return Err("invalid img".to_string());
+            };
+            let Some(tag_str) = repo_parts.last() else {
+                return Err("invalid img".to_string());
+            };
+            repository_info = Some(RepositoryInfo {
+                repository: repository_str.to_string(),
+                tag: tag_str.to_string(),
+            });
+        }
+        let Some(digest) = image.id.clone() else {
+            return Err("no digest".to_string());
+        };
+        let Some(created) = image.created.clone() else {
+            // TODO fail?
+            return Err("no date".to_string());
+        };
+
+        Ok(Image {
+            repository_info,
+            size_bytes: image.size,
+            digest,
+            date: DateTime::parse_from_rfc3339(&created).unwrap().into(),
+        })
+    }
 }
 
 impl Image {
@@ -87,10 +160,20 @@ impl Image {
         a
     }
 
-    pub fn get_name(&self) -> String {
-        match &self.name {
-            Some(name) => name.to_string(),
+    // Repo name only. Human readable
+    pub fn get_repo_name(&self) -> String {
+        match &self.repository_info {
+            Some(repo_info) => repo_info.repository.to_string(),
             None => format!("<Sin nombre: {}>", self.get_id()),
+        }
+    }
+
+    // Full image name (repo:tag or digest)
+    pub fn get_image_name(&self) -> String {
+        if let Some(repo_info) = &self.repository_info {
+            format!("{}:{}", repo_info.repository, repo_info.tag)
+        } else {
+            self.get_digest_value()
         }
     }
 
@@ -105,7 +188,11 @@ impl Image {
     }
 
     pub fn get_human_size(&self) -> String {
-        humansize::format_size(self.size_bytes, humansize::DECIMAL)
+        if let Some(bytes) = self.size_bytes {
+            humansize::format_size(bytes as u64, humansize::DECIMAL)
+        } else {
+            "Desconocido".to_string()
+        }
     }
 }
 
@@ -126,13 +213,13 @@ pub async fn connect() -> Result<Docker, ()> {
             println!("Connecting with UNIX sockets...");
             docker = Docker::connect_with_socket_defaults();
             if docker.is_err() {
-		let home_dir = match std::env::home_dir() {
-		    Some(x) => {
-			let str = x.into_os_string();
-			str.to_str().unwrap_or("~").to_string()
-		    },
-		    None => "~".to_string(),
-		};
+                let home_dir = match std::env::home_dir() {
+                    Some(x) => {
+                        let str = x.into_os_string();
+                        str.to_str().unwrap_or("~").to_string()
+                    }
+                    None => "~".to_string(),
+                };
                 println!("Connecting with macOS UNIX sockets...");
                 docker = Docker::connect_with_socket(
                     &format!("{home_dir}/.docker/run/docker.sock"),
@@ -173,13 +260,11 @@ pub async fn bollard_image_list() -> Result<Vec<Image>, String> {
     };
 
     let mut list = Vec::new();
-    for image in images {
-        list.push(Image {
-            name: image.repo_tags.first().cloned(),
-            size_bytes: image.size as u64,
-            digest: image.id.clone(),
-            date: DateTime::from_timestamp_secs(image.created).unwrap(),
-        });
+    for summary in images {
+        let Ok(image) = Image::try_from(&summary) else {
+            continue;
+        };
+        list.push(image);
     }
     //println!("{list:?}");
 

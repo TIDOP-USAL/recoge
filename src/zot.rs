@@ -1,4 +1,5 @@
 use crate::configuration::AppConfig;
+use crate::container;
 use crate::error::{ClientError, Error, RemoteError, Result};
 use chrono::{DateTime, Utc};
 use reqwest::Method;
@@ -62,7 +63,7 @@ impl Client {
         Ok(client)
     }
 
-    pub async fn get_image_list(&mut self) -> Result<Vec<String>> {
+    pub async fn get_image_list(&mut self) -> Result<Vec<container::Image>> {
         let query = r"query=
 {
   RepoListWithNewestImage(requestedPage: {limit: 0, offset:0, sortBy: ALPHABETIC_ASC}) {
@@ -114,11 +115,14 @@ impl Client {
         };
         let list = body.data.RepoListWithNewestImage.Results;
         println!("List: {list:#?}");
-        let mut names = Vec::new();
-        for image in list {
-            names.push(format!("{}:{}", image.Name, image.NewestImage.Tag));
+        let mut images = Vec::new();
+        for result in list {
+            let Ok(image) = container::Image::try_from(&result) else {
+                continue;
+            };
+            images.push(image);
         }
-        Ok(names)
+        Ok(images)
     }
 }
 
@@ -155,4 +159,22 @@ pub struct RepoListImage {
 pub struct ImageTags {
     pub Digest: String,
     pub Tag: String,
+}
+
+impl TryFrom<&RepoListImage> for container::Image {
+    type Error = Error;
+
+    fn try_from(image: &RepoListImage) -> Result<Self> {
+        let repository_info = Some(container::RepositoryInfo {
+            repository: image.Name.clone(),
+            tag: image.NewestImage.Tag.clone(),
+        });
+
+        Ok(container::Image {
+            repository_info,
+            size_bytes: Some(image.Size),
+            digest: image.NewestImage.Digest.clone(),
+            date: image.LastUpdated,
+        })
+    }
 }

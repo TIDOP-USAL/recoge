@@ -3,7 +3,7 @@
 
 pub mod config_window;
 pub mod configuration;
-pub mod docker;
+pub mod container;
 pub mod error;
 pub mod image_info_window;
 pub mod tasks;
