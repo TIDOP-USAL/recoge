@@ -15,6 +15,13 @@ impl Default for WindowState {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum RemoteImageStatus {
+    Present,
+    Missing,
+    SizeMismatch,
+}
+
 #[derive(Clone, PartialEq)]
 pub struct WindowOptions {
     title: String,
@@ -29,6 +36,8 @@ pub struct WindowOptions {
     anchor: egui::Align2,
     anchor_offset: egui::Vec2,
     pub data_is_loading: bool,
+    pub image_in_local: Option<bool>,
+    pub image_in_remote: Option<RemoteImageStatus>,
     pub image_name: Option<String>,
     pub image_digest: Option<String>,
     pub image_inspect: Option<bollard::models::ImageInspect>,
@@ -49,6 +58,8 @@ impl Default for WindowOptions {
             anchor: egui::Align2::RIGHT_TOP,
             anchor_offset: egui::Vec2::ZERO,
             data_is_loading: false,
+            image_in_local: None,
+            image_in_remote: None,
             image_name: None,
             image_digest: None,
             image_inspect: None,
@@ -71,6 +82,8 @@ pub fn show(mut options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool)
         anchor_offset,
         data_is_loading,
         image_name: _,
+        image_in_local: _,
+        image_in_remote: _,
         image_digest: _,
         image_inspect: _,
     } = options.clone();
@@ -116,6 +129,8 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         anchor: _,
         anchor_offset: _,
         data_is_loading: _,
+        image_in_local,
+        image_in_remote,
         image_name,
         image_digest,
         image_inspect,
@@ -145,14 +160,36 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
     ui.label(format!("Arquitectura: {:?}", image_inspect.architecture));
 
     ui.separator();
+    let local_str = match image_in_local {
+        Some(local) => {
+            if *local {
+                "Sí"
+            } else {
+                "No"
+            }
+        }
+        None => "Desconocido",
+    };
+    ui.label(format!("Está en local: {local_str}"));
+    let remote_str = match image_in_remote {
+        Some(remote_status) => match remote_status {
+            RemoteImageStatus::Present => "Sí",
+            RemoteImageStatus::Missing => "No",
+            RemoteImageStatus::SizeMismatch => "No. Versión distinta ⚠",
+        },
+        None => "Desconocido",
+    };
+    ui.label(format!("Subida en el Registro: {remote_str}"));
+
+    ui.separator();
     ui.horizontal(|ui| {
         ui.label("Acciones: ");
         if ui.button("🗑").on_hover_text("Eliminar la imagen").clicked() {
             println!("Eliminar {image_digest}");
         }
     });
-    let on_top = Some(ui.layer_id()) == ui.ctx().top_layer_id();
-    ui.label(format!("This window is on top: {on_top}."));
+    //let on_top = Some(ui.layer_id()) == ui.ctx().top_layer_id();
+    //ui.label(format!("This window is on top: {on_top}."));
 
     /*ui.separator();
     ui.horizontal(|ui| {

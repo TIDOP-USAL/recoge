@@ -47,6 +47,21 @@ impl ClientError {
     }
 }
 
+impl Error {
+    pub fn is_not_found(&self) -> bool {
+        match self {
+            Error::Program(_) => false,
+            Error::Remote(_) => false,
+            Error::Client(client_error) => match client_error {
+                ClientError::Invalid(_) => false,
+                ClientError::Conflict(_) => false,
+                ClientError::NotFound(_) => true,
+                ClientError::Unauthorized(_) => false,
+            },
+        }
+    }
+}
+
 // reqwest error to Program Error
 impl From<reqwest::Error> for Error {
     fn from(reqwest_e: reqwest::Error) -> Error {

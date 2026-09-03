@@ -1,6 +1,6 @@
 //use std::process::Command;
 //use std::collections::HashMap;
-
+use crate::error::{ClientError, Error, Result};
 use bollard::models::ImageInspect;
 use bollard::query_parameters::ListImagesOptionsBuilder;
 use bollard::{Docker, plugin::ImageSummary};
@@ -69,6 +69,7 @@ pub struct Image {
     pub repository_info: Option<RepositoryInfo>, // Optional repository name:tag
     pub size_bytes: Option<i64>,
     pub digest: String, // Full sha256:...
+    //TODO, repo tags/digests Vec
     pub date: DateTime<Utc>,
 }
 
@@ -79,18 +80,18 @@ pub struct RepositoryInfo {
 }
 
 impl TryFrom<&ImageSummary> for Image {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(image: &ImageSummary) -> Result<Self, Self::Error> {
+    fn try_from(image: &ImageSummary) -> Result<Self> {
         let mut repository_info = None;
         if let Some(image) = image.repo_tags.first().cloned() {
             // repo:tag (Optional)
             let mut repo_parts = image.split(':');
             let Some(repository_str) = repo_parts.next() else {
-                return Err("invalid img".to_string());
+                return Err(Error::Program("invalid img".to_string()));
             };
             let Some(tag_str) = repo_parts.last() else {
-                return Err("invalid img".to_string());
+                return Err(Error::Program("invalid img".to_string()));
             };
             repository_info = Some(RepositoryInfo {
                 repository: repository_str.to_string(),
@@ -107,9 +108,9 @@ impl TryFrom<&ImageSummary> for Image {
 }
 
 impl TryFrom<&ImageInspect> for Image {
-    type Error = String;
+    type Error = Error;
 
-    fn try_from(image: &ImageInspect) -> Result<Self, Self::Error> {
+    fn try_from(image: &ImageInspect) -> Result<Self> {
         let mut repository_info = None;
         if let Some(repo_tags) = image.repo_tags.clone()
             && let Some(image) = repo_tags.first().cloned()
@@ -117,10 +118,10 @@ impl TryFrom<&ImageInspect> for Image {
             // repo:tag (Optional)
             let mut repo_parts = image.split(':');
             let Some(repository_str) = repo_parts.next() else {
-                return Err("invalid img".to_string());
+                return Err(Error::Program("invalid img".to_string()));
             };
             let Some(tag_str) = repo_parts.last() else {
-                return Err("invalid img".to_string());
+                return Err(Error::Program("invalid img".to_string()));
             };
             repository_info = Some(RepositoryInfo {
                 repository: repository_str.to_string(),
@@ -128,11 +129,11 @@ impl TryFrom<&ImageInspect> for Image {
             });
         }
         let Some(digest) = image.id.clone() else {
-            return Err("no digest".to_string());
+            return Err(Error::Program("no digest".to_string()));
         };
         let Some(created) = image.created.clone() else {
             // TODO fail?
-            return Err("no date".to_string());
+            return Err(Error::Program("no date".to_string()));
         };
 
         Ok(Image {
@@ -168,6 +169,10 @@ impl Image {
         }
     }
 
+    pub fn has_image_name(&self) -> bool {
+        self.repository_info.is_some()
+    }
+
     // Full image name (repo:tag or digest)
     pub fn get_image_name(&self) -> String {
         if let Some(repo_info) = &self.repository_info {
@@ -194,9 +199,22 @@ impl Image {
             "Desconocido".to_string()
         }
     }
+
+    pub async fn is_in_local(&self) -> Result<bool> {
+        match bollard_image_inspect(self.get_image_name()).await {
+            Ok(_) => Ok(true),
+            Err(x) => {
+                if x.is_not_found() {
+                    Ok(false)
+                } else {
+                    Err(x)
+                }
+            }
+        }
+    }
 }
 
-pub async fn connect() -> Result<Docker, ()> {
+pub async fn connect() -> Result<Docker> {
     println!("Connecting to Docker...");
     let mut docker = Docker::connect_with_local_defaults();
 
@@ -233,7 +251,9 @@ pub async fn connect() -> Result<Docker, ()> {
         Ok(x) => x,
         Err(x) => {
             println!("Can't connect: {x:?}");
-            return Err(());
+            return Err(Error::Program(
+                "Can't connect to container services".to_string(),
+            ));
         }
     };
     println!("Connected!");
@@ -241,27 +261,23 @@ pub async fn connect() -> Result<Docker, ()> {
     Ok(docker)
 }
 
-pub async fn bollard_image_list() -> Result<Vec<Image>, String> {
-    let docker = match connect().await {
-        Ok(x) => x,
-        Err(()) => {
-            return Err(format!("No Docker connection"));
-        }
-    };
-    println!("Getting image list!");
+pub async fn bollard_image_list() -> Result<Vec<Image>> {
+    let docker = connect().await?;
+    println!("Getting image list...");
     let options = ListImagesOptionsBuilder::default().all(false).build();
     let images = match docker.list_images(Some(options)).await {
         Ok(images) => images,
         Err(x) => {
             let err_str = x.to_string();
             eprintln!("{err_str}");
-            return Err(err_str);
+            return Err(Error::Program(err_str));
         }
     };
 
     let mut list = Vec::new();
     for summary in images {
         let Ok(image) = Image::try_from(&summary) else {
+            println!("Error: skipping invalid image");
             continue;
         };
         list.push(image);
@@ -271,21 +287,18 @@ pub async fn bollard_image_list() -> Result<Vec<Image>, String> {
     Ok(list)
 }
 
-pub async fn bollard_image_inspect(image: String) -> Result<ImageInspect, String> {
-    let docker = match connect().await {
-        Ok(x) => x,
-        Err(()) => {
-            return Err(format!("No Docker connection"));
-        }
-    };
+pub async fn bollard_image_inspect(image: String) -> Result<ImageInspect> {
+    let docker = connect().await?;
     println!("Inspecting image!");
-    let image = &docker.inspect_image(&image).await;
-    match image {
+    match docker.inspect_image(&image).await {
         Ok(image) => Ok(image.clone()),
         Err(x) => {
             let err_str = x.to_string();
             eprintln!("{err_str}");
-            return Err(err_str);
+            if err_str.contains("code 404") {
+                return Err(ClientError::NotFound(format!("Image {image} not found")).err());
+            }
+            return Err(Error::Program(err_str));
         }
     }
 }

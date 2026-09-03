@@ -11,6 +11,7 @@ use egui::{Align, Layout, UiBuilder};
 use egui_extras::Column;
 use egui_extras::TableBuilder;
 use egui_notify::Toasts;
+use image_info_window::RemoteImageStatus;
 use std::sync::{Arc, Mutex};
 
 use container::Image;
@@ -119,37 +120,106 @@ impl MyApp {
             *image_list_loaded_arc.lock().unwrap() = true;
         });
     }
-    pub fn inspect_image(&mut self, image: String) {
+
+    // image: image name or digest
+    pub fn inspect_image(&mut self, image: Image, config: AppConfig) {
         let image_info_window_state_arc = Arc::clone(&self.image_info_window_state);
         let toasts_arc = Arc::clone(&self.toasts);
 
         self.data.fire_async(async move {
-            let result = container::bollard_image_inspect(image).await;
+            println!("Inspecting: {}", image.get_image_name());
+            // Inspect local image
+            let inspect_result = container::bollard_image_inspect(image.get_digest_value()).await; // TODO should use image_name?
+
+            // Get remote image info
+            let Ok(mut zot_client) = zot::Client::new(&config) else {
+                let mut toasts = toasts_arc.lock().unwrap();
+                toasts
+                    .error("Error de conexión. Comprueba las credenciales del Registro.")
+                    .duration(std::time::Duration::from_secs(3));
+                return;
+            };
+            let mut image_in_remote_option = None;
+            let mut remote_image_size_option = None;
+            if inspect_result.is_ok()
+                && image.has_image_name()
+                && let Ok(remote_info) = image.clone().get_remote_info(&mut zot_client).await
+            {
+                // TODO move
+                image_in_remote_option = Some(remote_info.is_in_remote);
+                if remote_info.is_in_remote {
+                    println!("Esto tenemos de zot: {remote_info:#?}");
+                    remote_image_size_option = remote_info.image_info.unwrap().size_bytes;
+                }
+            }
 
             let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
             image_info_window_state.options.data_is_loading = false;
 
-            if let Ok(image_inspect) = result {
-                image_info_window_state.options.image_inspect = Some(image_inspect.clone());
+            match inspect_result {
+                Ok(image_inspect) => {
+                    image_info_window_state.options.image_inspect = Some(image_inspect.clone());
 
-                let Ok(image) = container::Image::try_from(&image_inspect) else {
+                    let Ok(local_image) = container::Image::try_from(&image_inspect) else {
+                        let mut toasts = toasts_arc.lock().unwrap();
+                        toasts
+                            .error("Error al leer la información de imagen.")
+                            .duration(std::time::Duration::from_secs(3));
+                        return;
+                    };
+                    // Set window parameters. TODO send image itself?
+                    image_info_window_state.options.image_name = Some(local_image.get_image_name());
+                    image_info_window_state.options.image_digest =
+                        Some(local_image.get_digest_value());
+                    image_info_window_state.options.image_in_local = Some(true);
+                    // Safety. Check both sizes
+                    println!(
+                        "Sizes. Local: {:?}. Remote: {remote_image_size_option:?}",
+                        image.size_bytes
+                    );
+                    if let Some(in_remote) = image_in_remote_option
+                        && let Some(remote_size) = remote_image_size_option
+                    {
+                        // Compare sizes
+                        image_info_window_state.options.image_in_remote = if in_remote {
+                            if let Some(local_size) = image.size_bytes {
+                                if local_size == remote_size {
+                                    println!("Sizes match, OK!");
+                                    Some(RemoteImageStatus::Present)
+                                } else {
+                                    println!(
+                                        "Size mismatch. Local: {}. Remote: {remote_size}",
+                                        local_size
+                                    );
+                                    Some(RemoteImageStatus::SizeMismatch)
+                                }
+                            } else {
+                                // Remote case
+                                println!("Fatal: no local size");
+                                None
+                            }
+                        } else {
+                            Some(RemoteImageStatus::Missing)
+                        }
+                    }
+
+                    // Open window
+                    image_info_window_state.open = true;
+                }
+                Err(x) => {
+                    println!("Error when inspecting local image: {x:?}");
                     let mut toasts = toasts_arc.lock().unwrap();
-                    toasts
-                        .error("Error al leer la información de imagen.")
-                        .duration(std::time::Duration::from_secs(3));
-                    return;
-                };
-                //image_info_window_state.options.image_name = Some(image_name.to_string());
-                //image_info_window_state.options.image_digest = Some(image.get_digest_value());
-                image_info_window_state.options.image_name = Some(image.get_image_name());
-                image_info_window_state.options.image_digest = Some(image.get_digest_value());
-
-                image_info_window_state.open = true;
-            } else {
-                let mut toasts = toasts_arc.lock().unwrap();
-                toasts
-                    .error("Error de conexión. Comprueba que Container está funcionando.")
-                    .duration(std::time::Duration::from_secs(3));
+                    if x.is_not_found() {
+                        toasts
+                            .info("No se encuentra información de la imagen.")
+                            .duration(std::time::Duration::from_secs(3));
+                    } else {
+                        // TODO 500 normalizing.
+                        toasts
+                            .error("Error de conexión. Comprueba que Container está funcionando.")
+                            .duration(std::time::Duration::from_secs(3));
+                    }
+                }
             }
         });
     }
@@ -178,6 +248,12 @@ impl MyApp {
                 }
             };
             println!("{list:#?}");
+            // TODO testing
+            let last_image = list.last().unwrap().clone();
+            let is_in_remote = last_image.clone().get_remote_info(&mut client).await;
+            println!("is in remote: {is_in_remote:?}");
+            let is_in_local = last_image.is_in_local().await;
+            println!("is in local: {is_in_local:?}");
         });
     }
 }
@@ -359,6 +435,7 @@ impl eframe::App for MyApp {
                     if date_rev {
                         for image in image_list.iter().rev() {
                             self.image_table_row(
+                                &global_data.config,
                                 image,
                                 &mut body,
                                 upload_window_state,
@@ -368,6 +445,7 @@ impl eframe::App for MyApp {
                     } else {
                         for image in image_list.iter() {
                             self.image_table_row(
+                                &global_data.config,
                                 image,
                                 &mut body,
                                 upload_window_state,
@@ -383,6 +461,7 @@ impl eframe::App for MyApp {
 impl MyApp {
     fn image_table_row(
         &mut self,
+        config: &AppConfig,
         image: &Image,
         body: &mut egui_extras::TableBody,
         upload_window_state: &mut upload_window::WindowState,
@@ -411,7 +490,7 @@ impl MyApp {
                         if !image_info_window_state.options.data_is_loading {
                             println!("Info de {image_name}");
 
-                            self.inspect_image(image.get_digest_value());
+                            self.inspect_image(image.clone(), config.clone());
 
                             //image_info_window_state.open = true;
                             image_info_window_state.options.data_is_loading = true;
