@@ -223,7 +223,8 @@ impl TryFrom<&RepoListImage> for container::Image {
         Ok(container::Image {
             repository_info,
             size_bytes: Some(image.Size),
-            digest: image.NewestImage.Digest.clone(),
+            id: image.NewestImage.Digest.clone(),
+	    digests: vec![image.NewestImage.Digest.clone()],
             date: image.LastUpdated,
         })
     }
@@ -266,7 +267,8 @@ impl TryFrom<&ImageInfo> for container::Image {
         Ok(container::Image {
             repository_info,
             size_bytes: Some(image.Size),
-            digest: image.Digest.clone(),
+            id: image.Digest.clone(),
+	    digests: vec![image.Digest.clone()],
             date: image.LastUpdated,
         })
     }

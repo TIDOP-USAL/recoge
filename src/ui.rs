@@ -109,12 +109,13 @@ impl MyApp {
             let Ok(mut images) = container::bollard_image_list().await else {
                 let mut toasts = toasts_arc.lock().unwrap();
                 toasts
-                    .error("Error de conexión. Comprueba que Container está funcionando.")
+                    .error("Error de conexión. Comprueba que Docker esté funcionando.")
                     .duration(std::time::Duration::from_secs(3));
                 return;
             };
             let mut image_list = image_list_arc.lock().unwrap();
             image_list.clear();
+	    // TODO collection groups
             image_list.append(&mut images);
             image_list.sort_by_key(|x| x.date); // Oldest image first
             *image_list_loaded_arc.lock().unwrap() = true;
@@ -129,8 +130,8 @@ impl MyApp {
         self.data.fire_async(async move {
             println!("Inspecting: {}", image.get_image_name());
             // Inspect local image
-            let inspect_result = container::bollard_image_inspect(image.get_digest_value()).await; // TODO should use image_name?
-
+            let inspect_result = container::bollard_image_inspect(image.get_image_name()).await;
+	    
             // Get remote image info
             let Ok(mut zot_client) = zot::Client::new(&config) else {
                 let mut toasts = toasts_arc.lock().unwrap();
@@ -157,20 +158,26 @@ impl MyApp {
             image_info_window_state.options.data_is_loading = false;
 
             match inspect_result {
-                Ok(image_inspect) => {
-                    image_info_window_state.options.image_inspect = Some(image_inspect.clone());
+                Ok(mut image_inspect) => {
+		    //println!("image_inspect: {image_inspect:#?}");
 
-                    let Ok(local_image) = container::Image::try_from(&image_inspect) else {
+                    let Ok(mut local_images) = container::ImageCollection::try_from(&image_inspect) else {
                         let mut toasts = toasts_arc.lock().unwrap();
                         toasts
                             .error("Error al leer la información de imagen.")
                             .duration(std::time::Duration::from_secs(3));
                         return;
                     };
+		    // BUGFIX, wrong size on inspect, use parent size
+		    local_images.size_bytes = image.size_bytes;
+		    image_inspect.size = image.size_bytes;
+		    
+		    //println!("local_images: {local_images:#?}");
                     // Set window parameters. TODO send image itself?
-                    image_info_window_state.options.image_name = Some(local_image.get_image_name());
-                    image_info_window_state.options.image_digest =
-                        Some(local_image.get_digest_value());
+                    image_info_window_state.options.image_inspect = Some(image_inspect.clone());
+		    image_info_window_state.options.selected_image_name = Some(image.get_image_name());
+                    image_info_window_state.options.image_collection = Some(local_images);
+		    
                     image_info_window_state.options.image_in_local = Some(true);
                     // Safety. Check both dates
                     let local_date = image.date;
@@ -199,6 +206,7 @@ impl MyApp {
                             Some(RemoteImageStatus::Missing)
                         };
                     }
+		    // TODO try to check through digests?
 
                     // Open window
                     image_info_window_state.open = true;
@@ -261,15 +269,17 @@ impl Default for MyApp {
         for i in 1..4 {
             image_list.push(Image {
                 repository_info: Some(container::RepositoryInfo {
-                    repository: format!("Test {i}"),
-                    tag: "notag".to_string(),
+                    repository: "cr.tidop.es/lcsc".to_string(),
+                    tag: "latest".to_string(),
                 }),
                 size_bytes: Some(i * 1000),
-                digest: "b889dc1ed5c1".to_string(),
-                date: chrono::DateTime::<chrono::Utc>::from_timestamp_secs(
+                id: "0042152187f577f43a7e621fa39fa54baa6f097f261b9338e3e5c114a0a0dd09".to_string(),
+		digests: vec!["0042152187f577f43a7e621fa39fa54baa6f097f261b9338e3e5c114a0a0dd09".to_string()],
+                /*date: chrono::DateTime::<chrono::Utc>::from_timestamp_secs(
                     (i * 1000).try_into().unwrap(),
-                )
-                .unwrap(),
+            )*/
+		date: chrono::DateTime::parse_from_rfc3339("2026-04-22T10:48:35.802927736Z")
+                .unwrap().into(),
             });
         }
         Self {
@@ -405,7 +415,7 @@ impl eframe::App for MyApp {
                         ui.strong("Tamaño");
                     });
                     header.col(|ui| {
-                        ui.strong("Digest");
+                        ui.strong("ID local");
                     });
                     header.col(|ui| {
                         egui::Sides::new().show(
@@ -469,8 +479,11 @@ impl MyApp {
         //row.set_overline(self.overline && row_index % 7 == 3);
         body.row(row_height, |mut row| {
             row.col(|ui| {
-                let image_name = &image.get_image_name();
-                ui.label(image_name);
+                let mut image_name = image.get_image_name();
+		if !image_name.contains(':') {
+		    image_name.push_str(" (Sin nombre)");
+		}
+                ui.label(image_name.to_string());
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
                     if ui.button("⬆").on_hover_text("Subir a Registro").clicked() {
@@ -500,7 +513,7 @@ impl MyApp {
             });
             row.col(|ui| {
                 //ui.add(egui::Separator::default().horizontal());
-                ui.label(image.get_id());
+                ui.label(image.get_short_id());
             });
             row.col(|ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);

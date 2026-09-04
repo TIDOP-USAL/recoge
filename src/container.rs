@@ -64,108 +64,155 @@ pub fn get_image_list()-> Vec<Image> {
 }
 */
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Image {
-    pub repository_info: Option<RepositoryInfo>, // Optional repository name:tag
+// All aliases for one image. All repos, tags, digests.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct ImageCollection {
+    /// Other repository name:tag pairs.
+    /// "localhost" -> untagged, use id
+    pub image_aliases: Vec<RepositoryInfo>, // TODO Can be empty!
+    pub image_digests: Vec<String>, // TODO not parsed
     pub size_bytes: Option<i64>,
-    pub digest: String, // Full sha256:...
-    //TODO, repo tags/digests Vec
+    /// https://docs.rs/bollard/latest/bollard/config/struct.ImageSummary.html#structfield.id
+    pub id: String, // This is an unique id on Podman, one digest on Docker. Can be used to interact locally.
     pub date: DateTime<Utc>,
 }
 
+// TODO impl get Image from RepositoryInfo. Can't correlate digest
+
+impl ImageCollection {
+    pub fn get_id_value(&self) -> String {
+        self.id.split("sha256:").last().unwrap_or("").to_string()
+    }
+    
+    // Short version of the same digest
+    pub fn get_short_id(&self) -> String {
+        self.get_id_value().chars().take(12).collect()
+    }
+    
+    pub fn to_images(&self) -> Vec<Image> {
+	let mut images = Vec::new();
+	for repo_info in &self.image_aliases {
+	    images.push(Image {
+		repository_info: Some(repo_info.clone()),
+		size_bytes: self.size_bytes,
+		id: self.id.clone(),
+		digests: self.image_digests.clone(),
+		date: self.date,
+	    });
+	}
+	images
+    }
+}
+
+// An specific single image from ImageCollection. User can interact with this (retag, delete tag, upload to registry, ...)
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Image {
+    pub repository_info: Option<RepositoryInfo>, // Optional repository name:tag pair
+    pub size_bytes: Option<i64>,
+    //pub digest: String, // Full sha256:... Do not use to refer to an image/ as an id.
+    pub id: String, // One of many digests. Do not use to interact with the image.
+    pub digests: Vec<String>, // Full repo@sha256:... digests. Do not use to refer to an image/ as an id
+    pub date: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct RepositoryInfo {
     pub repository: String,
     pub tag: String,
 }
 
-impl TryFrom<&ImageSummary> for Image {
+impl RepositoryInfo {
+    pub fn get_image(&self) -> String {
+	format!("{}:{}", self.repository, self.tag)
+    }
+}
+
+impl TryFrom<&ImageSummary> for ImageCollection {
     type Error = Error;
 
     fn try_from(image: &ImageSummary) -> Result<Self> {
-        let mut repository_info = None;
-        if let Some(image) = image.repo_tags.first().cloned() {
+        let mut image_aliases = Vec::new();
+	for repo_tag in image.repo_tags.clone() {
             // repo:tag (Optional)
-            let mut repo_parts = image.split(':');
+            let mut repo_parts = repo_tag.split(':');
             let Some(repository_str) = repo_parts.next() else {
                 return Err(Error::Program("invalid img".to_string()));
             };
             let Some(tag_str) = repo_parts.last() else {
                 return Err(Error::Program("invalid img".to_string()));
             };
-            repository_info = Some(RepositoryInfo {
+            image_aliases.push(RepositoryInfo {
                 repository: repository_str.to_string(),
                 tag: tag_str.to_string(),
             });
         }
-        Ok(Image {
-            repository_info,
+	let image_digests = image.repo_digests.clone();
+        Ok(Self {
+            image_aliases,
+	    image_digests,
             size_bytes: Some(image.size),
-            digest: image.id.clone(),
+	    id: image.id.clone(),
             date: DateTime::from_timestamp_secs(image.created).unwrap(),
         })
     }
 }
 
-impl TryFrom<&ImageInspect> for Image {
+impl TryFrom<&ImageInspect> for ImageCollection {
     type Error = Error;
 
     fn try_from(image: &ImageInspect) -> Result<Self> {
-        let mut repository_info = None;
+        let mut image_aliases = Vec::new();
         if let Some(repo_tags) = image.repo_tags.clone()
-            && let Some(image) = repo_tags.first().cloned()
         {
-            // repo:tag (Optional)
-            let mut repo_parts = image.split(':');
-            let Some(repository_str) = repo_parts.next() else {
-                return Err(Error::Program("invalid img".to_string()));
-            };
-            let Some(tag_str) = repo_parts.last() else {
-                return Err(Error::Program("invalid img".to_string()));
-            };
-            repository_info = Some(RepositoryInfo {
-                repository: repository_str.to_string(),
-                tag: tag_str.to_string(),
-            });
+	    for repo_tag in repo_tags {
+		// repo:tag (Optional)
+		let mut repo_parts = repo_tag.split(':');
+		let Some(repository_str) = repo_parts.next() else {
+                    return Err(Error::Program("invalid img".to_string()));
+		};
+		let Some(tag_str) = repo_parts.last() else {
+                    return Err(Error::Program("invalid img".to_string()));
+		};
+		image_aliases.push(RepositoryInfo {
+                    repository: repository_str.to_string(),
+                    tag: tag_str.to_string(),
+		});
+	    }
         }
-        let Some(digest) = image.id.clone() else {
-            return Err(Error::Program("no digest".to_string()));
+        let Some(id) = image.id.clone() else {
+            return Err(Error::Program("no id".to_string()));
         };
         let Some(created) = image.created.clone() else {
             // TODO fail?
             return Err(Error::Program("no date".to_string()));
         };
-
-        Ok(Image {
-            repository_info,
+	let image_digests = image.repo_digests.clone().unwrap_or(Vec::new());
+        Ok(Self {
+            image_aliases,
+	    image_digests,
             size_bytes: image.size,
-            digest,
+	    id,
             date: DateTime::parse_from_rfc3339(&created).unwrap().into(),
         })
     }
 }
 
 impl Image {
-    pub fn get_digest_value(&self) -> String {
-        let Some(a) = self.digest.split(':').last() else {
-            return String::new();
-        };
-        a.to_string()
+    // Get one of the image's digests, HR, not preferred as internal ID
+    pub fn get_id_value(&self) -> String {
+        self.id.split("sha256:").last().unwrap_or("").to_string()
     }
 
-    pub fn get_id(&self) -> String {
-        let Some(a) = self.digest.split(':').last() else {
-            return String::new();
-        };
-        let a: String = a.chars().take(12).collect();
-        a
+    // Short version of the same digest
+    pub fn get_short_id(&self) -> String {
+        self.get_id_value().chars().take(12).collect()
     }
 
     // Repo name only. Human readable
     pub fn get_repo_name(&self) -> String {
         match &self.repository_info {
             Some(repo_info) => repo_info.repository.to_string(),
-            None => format!("<Sin nombre: {}>", self.get_id()),
+            None => format!("<Sin nombre: {}>", self.get_short_id()),
         }
     }
 
@@ -173,13 +220,18 @@ impl Image {
         self.repository_info.is_some()
     }
 
-    // Full image name (repo:tag or digest)
+    // Full image name (repo:tag or id digest)
     pub fn get_image_name(&self) -> String {
         if let Some(repo_info) = &self.repository_info {
-            format!("{}:{}", repo_info.repository, repo_info.tag)
-        } else {
-            self.get_digest_value()
+	    if repo_info.repository != "localhost" { 
+		return repo_info.get_image()
+	    } else {
+		// "localhost" means untagged image. There might me multiple of these: show/use short_id instead
+		return self.get_short_id()
+	    }
         }
+        self.get_id_value()
+        
     }
 
     pub fn get_date_local(&self) -> String {
@@ -261,7 +313,9 @@ pub async fn connect() -> Result<Docker> {
     Ok(docker)
 }
 
-pub async fn bollard_image_list() -> Result<Vec<Image>> {
+// TODO fix bug: "localhost:5000" is not correctly parsed
+// Image list, grouped by same image
+pub async fn bollard_image_collection_list() -> Result<Vec<ImageCollection>> {
     let docker = connect().await?;
     println!("Getting image list...");
     let options = ListImagesOptionsBuilder::default().all(false).build();
@@ -273,23 +327,37 @@ pub async fn bollard_image_list() -> Result<Vec<Image>> {
             return Err(Error::Program(err_str));
         }
     };
-
+    
     let mut list = Vec::new();
     for summary in images {
-        let Ok(image) = Image::try_from(&summary) else {
-            println!("Error: skipping invalid image");
+        let Ok(image_collection) = ImageCollection::try_from(&summary) else {
+            println!("Error: skipping invalid image collection");
             continue;
         };
-        list.push(image);
+        list.push(image_collection);
     }
-    //println!("{list:?}");
-
+    println!("{list:#?}");
     Ok(list)
+}
+
+// Ungrouped, raw image repos:tags list
+pub async fn bollard_image_list() -> Result<Vec<Image>> {
+    let collections = bollard_image_collection_list().await?;
+    let mut images = Vec::new();
+    for collection in collections {
+	let id = collection.get_short_id();
+	let size = collection.size_bytes;
+	println!("Size collection {id}: {size:?}");
+	images.append(&mut collection.to_images());
+    }
+    println!("{images:#?}");
+    Ok(images)
 }
 
 pub async fn bollard_image_inspect(image: String) -> Result<ImageInspect> {
     let docker = connect().await?;
     println!("Inspecting image!");
+    // TODO bug: Docker returns wrong size here?. Correct one on image_list.
     match docker.inspect_image(&image).await {
         Ok(image) => Ok(image.clone()),
         Err(x) => {
