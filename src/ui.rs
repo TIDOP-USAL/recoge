@@ -140,16 +140,16 @@ impl MyApp {
                 return;
             };
             let mut image_in_remote_option = None;
-            let mut remote_image_size_option = None;
+            let mut remote_image_date_option = None;
             if inspect_result.is_ok()
                 && image.has_image_name()
                 && let Ok(remote_info) = image.clone().get_remote_info(&mut zot_client).await
             {
-                // TODO move
+                println!("zot returned: {remote_info:#?}");
+                // TODO refactor
                 image_in_remote_option = Some(remote_info.is_in_remote);
                 if remote_info.is_in_remote {
-                    println!("Esto tenemos de zot: {remote_info:#?}");
-                    remote_image_size_option = remote_info.image_info.unwrap().size_bytes;
+                    remote_image_date_option = Some(remote_info.image_info.unwrap().date);
                 }
             }
 
@@ -172,35 +172,32 @@ impl MyApp {
                     image_info_window_state.options.image_digest =
                         Some(local_image.get_digest_value());
                     image_info_window_state.options.image_in_local = Some(true);
-                    // Safety. Check both sizes
-                    println!(
-                        "Sizes. Local: {:?}. Remote: {remote_image_size_option:?}",
-                        image.size_bytes
-                    );
-                    if let Some(in_remote) = image_in_remote_option
-                        && let Some(remote_size) = remote_image_size_option
-                    {
-                        // Compare sizes
+                    // Safety. Check both dates
+                    let local_date = image.date;
+                    // If zot info
+                    if let Some(in_remote) = image_in_remote_option {
                         image_info_window_state.options.image_in_remote = if in_remote {
-                            if let Some(local_size) = image.size_bytes {
-                                if local_size == remote_size {
-                                    println!("Sizes match, OK!");
+                            // Image is in remote. Compare dates
+                            if let Some(remote_date) = remote_image_date_option {
+                                println!(
+                                    "Date check. Local: {local_date:?}. Remote: {remote_date:?}"
+                                );
+                                let offset = local_date - remote_date;
+                                if offset.abs().num_seconds() < 2 {
+                                    println!("Dates match, OK!");
                                     Some(RemoteImageStatus::Present)
                                 } else {
-                                    println!(
-                                        "Size mismatch. Local: {}. Remote: {remote_size}",
-                                        local_size
-                                    );
-                                    Some(RemoteImageStatus::SizeMismatch)
+                                    println!("Date mismatch.");
+                                    Some(RemoteImageStatus::DateMismatch)
                                 }
                             } else {
-                                // Remote case
-                                println!("Fatal: no local size");
+                                println!("Internal error");
                                 None
                             }
                         } else {
+                            println!("Image not in remote");
                             Some(RemoteImageStatus::Missing)
-                        }
+                        };
                     }
 
                     // Open window

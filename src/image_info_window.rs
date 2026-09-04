@@ -19,7 +19,9 @@ impl Default for WindowState {
 pub enum RemoteImageStatus {
     Present,
     Missing,
-    SizeMismatch,
+    DateMismatch,
+    //SizeMismatch,
+    //DigestMismatch,
 }
 
 #[derive(Clone, PartialEq)]
@@ -175,7 +177,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         Some(remote_status) => match remote_status {
             RemoteImageStatus::Present => "Sí",
             RemoteImageStatus::Missing => "No",
-            RemoteImageStatus::SizeMismatch => "No. Versión distinta ⚠",
+            RemoteImageStatus::DateMismatch => "No. Versión distinta ⚠",
         },
         None => "Desconocido",
     };

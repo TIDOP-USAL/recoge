@@ -132,6 +132,7 @@ impl Client {
     LastUpdated
     Digest
     Size
+    Title
     Description
   }}
 }}
@@ -165,8 +166,10 @@ impl Client {
         };
         let Some(data) = body.data else {
             // Not found
+            println!("Image not found on registry");
             return Err(ClientError::NotFound("Image not found".to_string()).err());
         };
+        println!("{data:#?}");
         let image = container::Image::try_from(&data.Image)?;
         println!("Image: {image:#?}");
         Ok(image)
@@ -242,6 +245,7 @@ pub struct ImageHolder {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ImageInfo {
     pub Description: String,
+    pub Title: String, // OCI title, HR
     pub LastUpdated: DateTime<Utc>,
     pub RepoName: String,
     pub Digest: String,
