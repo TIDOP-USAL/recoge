@@ -83,24 +83,24 @@ impl ImageCollection {
     pub fn get_id_value(&self) -> String {
         self.id.split("sha256:").last().unwrap_or("").to_string()
     }
-    
+
     // Short version of the same digest
     pub fn get_short_id(&self) -> String {
         self.get_id_value().chars().take(12).collect()
     }
-    
+
     pub fn to_images(&self) -> Vec<Image> {
-	let mut images = Vec::new();
-	for repo_info in &self.image_aliases {
-	    images.push(Image {
-		repository_info: Some(repo_info.clone()),
-		size_bytes: self.size_bytes,
-		id: self.id.clone(),
-		digests: self.image_digests.clone(),
-		date: self.date,
-	    });
-	}
-	images
+        let mut images = Vec::new();
+        for repo_info in &self.image_aliases {
+            images.push(Image {
+                repository_info: Some(repo_info.clone()),
+                size_bytes: self.size_bytes,
+                id: self.id.clone(),
+                digests: self.image_digests.clone(),
+                date: self.date,
+            });
+        }
+        images
     }
 }
 
@@ -123,7 +123,30 @@ pub struct RepositoryInfo {
 
 impl RepositoryInfo {
     pub fn get_image(&self) -> String {
-	format!("{}:{}", self.repository, self.tag)
+        format!("{}:{}", self.repository, self.tag)
+    }
+
+    pub fn get_stripped_repository(&self) -> String {
+        let mut repo_name = self.repository.clone();
+        // Strip domain from repo name
+        let mut parts = repo_name.split('/');
+        let part_count = parts.clone().collect::<Vec<_>>().len();
+
+        if part_count > 1
+            && let Some(first) = parts.next()
+        {
+            // Is domain (crude)
+            if first.contains(".") || first.contains("localhost") || first.contains(":") {
+                let mut remainder = String::new();
+                for part in parts {
+                    remainder += &format!("{part}/");
+                }
+                remainder.pop(); // remove trailing '/'
+                repo_name = remainder;
+            }
+        }
+        println!("parsed name: {repo_name:?}");
+        repo_name
     }
 }
 
@@ -132,7 +155,7 @@ impl TryFrom<&ImageSummary> for ImageCollection {
 
     fn try_from(image: &ImageSummary) -> Result<Self> {
         let mut image_aliases = Vec::new();
-	for repo_tag in image.repo_tags.clone() {
+        for repo_tag in image.repo_tags.clone() {
             // repo:tag (Optional)
             let mut repo_parts = repo_tag.split(':');
             let Some(repository_str) = repo_parts.next() else {
@@ -146,12 +169,12 @@ impl TryFrom<&ImageSummary> for ImageCollection {
                 tag: tag_str.to_string(),
             });
         }
-	let image_digests = image.repo_digests.clone();
+        let image_digests = image.repo_digests.clone();
         Ok(Self {
             image_aliases,
-	    image_digests,
+            image_digests,
             size_bytes: Some(image.size),
-	    id: image.id.clone(),
+            id: image.id.clone(),
             date: DateTime::from_timestamp_secs(image.created).unwrap(),
         })
     }
@@ -162,22 +185,21 @@ impl TryFrom<&ImageInspect> for ImageCollection {
 
     fn try_from(image: &ImageInspect) -> Result<Self> {
         let mut image_aliases = Vec::new();
-        if let Some(repo_tags) = image.repo_tags.clone()
-        {
-	    for repo_tag in repo_tags {
-		// repo:tag (Optional)
-		let mut repo_parts = repo_tag.split(':');
-		let Some(repository_str) = repo_parts.next() else {
+        if let Some(repo_tags) = image.repo_tags.clone() {
+            for repo_tag in repo_tags {
+                // repo:tag (Optional)
+                let mut repo_parts = repo_tag.split(':');
+                let Some(repository_str) = repo_parts.next() else {
                     return Err(Error::Program("invalid img".to_string()));
-		};
-		let Some(tag_str) = repo_parts.last() else {
+                };
+                let Some(tag_str) = repo_parts.last() else {
                     return Err(Error::Program("invalid img".to_string()));
-		};
-		image_aliases.push(RepositoryInfo {
+                };
+                image_aliases.push(RepositoryInfo {
                     repository: repository_str.to_string(),
                     tag: tag_str.to_string(),
-		});
-	    }
+                });
+            }
         }
         let Some(id) = image.id.clone() else {
             return Err(Error::Program("no id".to_string()));
@@ -186,12 +208,12 @@ impl TryFrom<&ImageInspect> for ImageCollection {
             // TODO fail?
             return Err(Error::Program("no date".to_string()));
         };
-	let image_digests = image.repo_digests.clone().unwrap_or(Vec::new());
+        let image_digests = image.repo_digests.clone().unwrap_or(Vec::new());
         Ok(Self {
             image_aliases,
-	    image_digests,
+            image_digests,
             size_bytes: image.size,
-	    id,
+            id,
             date: DateTime::parse_from_rfc3339(&created).unwrap().into(),
         })
     }
@@ -223,15 +245,14 @@ impl Image {
     // Full image name (repo:tag or id digest)
     pub fn get_image_name(&self) -> String {
         if let Some(repo_info) = &self.repository_info {
-	    if repo_info.repository != "localhost" { 
-		return repo_info.get_image()
-	    } else {
-		// "localhost" means untagged image. There might me multiple of these: show/use short_id instead
-		return self.get_short_id()
-	    }
+            if repo_info.repository != "localhost" {
+                return repo_info.get_image();
+            } else {
+                // "localhost" means untagged image. There might me multiple of these: show/use short_id instead
+                return self.get_short_id();
+            }
         }
         self.get_id_value()
-        
     }
 
     pub fn get_date_local(&self) -> String {
@@ -327,7 +348,7 @@ pub async fn bollard_image_collection_list() -> Result<Vec<ImageCollection>> {
             return Err(Error::Program(err_str));
         }
     };
-    
+
     let mut list = Vec::new();
     for summary in images {
         let Ok(image_collection) = ImageCollection::try_from(&summary) else {
@@ -345,10 +366,10 @@ pub async fn bollard_image_list() -> Result<Vec<Image>> {
     let collections = bollard_image_collection_list().await?;
     let mut images = Vec::new();
     for collection in collections {
-	let id = collection.get_short_id();
-	let size = collection.size_bytes;
-	println!("Size collection {id}: {size:?}");
-	images.append(&mut collection.to_images());
+        let id = collection.get_short_id();
+        let size = collection.size_bytes;
+        println!("Size collection {id}: {size:?}");
+        images.append(&mut collection.to_images());
     }
     println!("{images:#?}");
     Ok(images)

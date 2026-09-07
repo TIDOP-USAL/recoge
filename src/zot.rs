@@ -16,6 +16,13 @@ pub struct Client {
 }
 
 impl Client {
+    pub fn get_registry_name(&self) -> String {
+        self.api_base_url
+            .strip_prefix("https://")
+            .unwrap_or(&self.api_base_url)
+            .to_string()
+    }
+
     pub fn new(config: &AppConfig) -> Result<Self> {
         if config.remote_url.is_empty() {
             println!("Can't create zot client without API URL"); // TODO public images support
@@ -63,6 +70,29 @@ impl Client {
         Ok(client)
     }
 
+    async fn graphql_client(&mut self, query: String) -> Result<reqwest::Response> {
+        let query = query
+            .split(' ')
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let Ok(response) = self
+            .client(Method::GET, "/v2/_zot/ext/search", Some(&query))?
+            .send()
+            .await
+        else {
+            return Err(Error::Program("Can't reach zot".to_string()));
+        };
+        println!("{response:?}");
+        if response.status().is_client_error() {
+            return Err(Error::Program("zot client err".to_string()));
+        }
+        if response.status().is_server_error() {
+            return Err(RemoteError::Generic("zot err".to_string()).err());
+        }
+        Ok(response)
+    }
+
     pub async fn get_image_list(&mut self) -> Result<Vec<container::Image>> {
         let query = r"query=
 {
@@ -83,25 +113,8 @@ impl Client {
   }
 }
 "
-        .split(' ')
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ");
-        let Ok(response) = self
-            .client(Method::GET, "/v2/_zot/ext/search", Some(&query))?
-            .send()
-            .await
-        else {
-            return Err(Error::Program("Can't reach zot".to_string()));
-        };
-        println!("{response:?}");
-        if response.status().is_client_error() {
-            return Err(Error::Program("zot client err".to_string()));
-        }
-        if response.status().is_server_error() {
-            return Err(RemoteError::Generic("zot err".to_string()).err());
-        }
-
+        .to_string();
+        let response = self.graphql_client(query).await?;
         let body: RepoListWithNewestImageResponse = match response.json().await {
             Ok(x) => x,
             Err(x) => {
@@ -137,25 +150,8 @@ impl Client {
   }}
 }}
 "#
-        )
-        .split(' ')
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ");
-        let Ok(response) = self
-            .client(Method::GET, "/v2/_zot/ext/search", Some(&query))?
-            .send()
-            .await
-        else {
-            return Err(Error::Program("Can't reach zot".to_string()));
-        };
-        println!("{response:?}");
-        if response.status().is_client_error() {
-            return Err(Error::Program("zot client err".to_string()));
-        }
-        if response.status().is_server_error() {
-            return Err(RemoteError::Generic("zot err".to_string()).err());
-        }
+        );
+        let response = self.graphql_client(query).await?;
 
         let body: ImageResponse = match response.json().await {
             Ok(x) => x,
@@ -173,6 +169,43 @@ impl Client {
         let image = container::Image::try_from(&data.Image)?;
         println!("Image: {image:#?}");
         Ok(image)
+    }
+
+    /// May return an empty list
+    pub async fn get_repo_images(&mut self, repo: String) -> Result<Vec<container::Image>> {
+        let query = format!(
+            r#"query=
+{{
+  ImageList (repo: "{repo}") {{
+    Results {{
+      Tag
+      RepoName
+      Digest
+      LastUpdated
+      Size
+      DownloadCount
+    }}
+  }}
+}}
+"#
+        );
+        let response = self.graphql_client(query).await?;
+
+        let body: ImageListResponse = match response.json().await {
+            Ok(x) => x,
+            Err(x) => {
+                println!("error: {x:?}");
+                return Err(Error::Program("Can't decode Zot response".to_string()));
+            }
+        };
+        let mut images = Vec::new();
+        let data = body.data.ImageList.Results;
+        println!("{data:#?}");
+        for image in data {
+            println!("Image: {image:#?}");
+            images.push(container::Image::try_from(&image)?);
+        }
+        Ok(images)
     }
 }
 
@@ -224,7 +257,7 @@ impl TryFrom<&RepoListImage> for container::Image {
             repository_info,
             size_bytes: Some(image.Size),
             id: image.NewestImage.Digest.clone(),
-	    digests: vec![image.NewestImage.Digest.clone()],
+            digests: vec![image.NewestImage.Digest.clone()],
             date: image.LastUpdated,
         })
     }
@@ -268,7 +301,7 @@ impl TryFrom<&ImageInfo> for container::Image {
             repository_info,
             size_bytes: Some(image.Size),
             id: image.Digest.clone(),
-	    digests: vec![image.Digest.clone()],
+            digests: vec![image.Digest.clone()],
             date: image.LastUpdated,
         })
     }
@@ -320,5 +353,93 @@ impl container::Image {
                 }
             }
         }
+    }
+}
+
+#[allow(non_snake_case)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ImageListResponse {
+    pub data: ImageListHolder,
+}
+
+#[allow(non_snake_case)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ImageListHolder {
+    pub ImageList: ImageList,
+}
+
+#[allow(non_snake_case)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ImageList {
+    pub Results: Vec<ImageListImage>,
+}
+
+#[allow(non_snake_case)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ImageListImage {
+    pub Tag: String,
+    pub RepoName: String,
+    pub Digest: String,
+    pub LastUpdated: DateTime<Utc>,
+    #[serde(deserialize_with = "deserialize_number_from_string")]
+    pub Size: i64,
+}
+
+impl TryFrom<&ImageListImage> for container::Image {
+    type Error = Error;
+
+    fn try_from(image: &ImageListImage) -> Result<Self> {
+        let repository_info = Some(container::RepositoryInfo {
+            repository: image.RepoName.clone(),
+            tag: image.Tag.clone(),
+        });
+
+        Ok(container::Image {
+            repository_info,
+            size_bytes: Some(image.Size),
+            id: image.Digest.clone(),
+            digests: vec![image.Digest.clone()],
+            date: image.LastUpdated,
+        })
+    }
+}
+
+impl container::ImageCollection {
+    // Get all remote images that share repo names with the ImageCollection ones
+    pub async fn get_images_in_remote(self, client: &mut Client) -> Result<Vec<container::Image>> {
+        let local_image = self;
+        let mut repos = Vec::new();
+        for image_repo_info in local_image.image_aliases {
+            let repo = image_repo_info.get_stripped_repository();
+            repos.push(repo);
+        }
+        repos.sort();
+        repos.dedup();
+        let mut image_aliases = Vec::new();
+        for repo in repos {
+            //if repo.contains("localhost") { continue; }
+            println!("Querying images in repo {repo}");
+            let repo_images = client.get_repo_images(repo).await?;
+            for image in repo_images {
+                image_aliases.push(image);
+            }
+        }
+        Ok(image_aliases)
+    }
+
+    // Helper to the previous method
+    pub async fn get_full_image_aliases_in_remote(
+        self,
+        client: &mut Client,
+    ) -> Result<Vec<String>> {
+        let images = self.get_images_in_remote(client).await?;
+        let mut aliases = Vec::new();
+        for image in images {
+            let alias = format!("{}/{}", client.get_registry_name(), image.get_image_name());
+            aliases.push(alias);
+        }
+        aliases.sort();
+        aliases.dedup();
+        Ok(aliases)
     }
 }

@@ -1,6 +1,6 @@
+use crate::container::ImageCollection;
 use eframe::egui;
 use egui::Vec2b;
-use crate::container::ImageCollection;
 
 pub struct WindowState {
     pub options: WindowOptions,
@@ -42,6 +42,7 @@ pub struct WindowOptions {
     pub selected_image_name: Option<String>,
     pub image_in_local: Option<bool>,
     pub image_in_remote: Option<RemoteImageStatus>,
+    pub image_aliases_in_remote: Vec<String>,
     pub image_collection: Option<ImageCollection>,
     pub image_inspect: Option<bollard::models::ImageInspect>,
 }
@@ -62,11 +63,12 @@ impl Default for WindowOptions {
             anchor: egui::Align2::RIGHT_TOP,
             anchor_offset: egui::Vec2::ZERO,
             data_is_loading: false,
-	    selected_image_name: None,
+            selected_image_name: None,
             image_in_local: None,
             image_in_remote: None,
+            image_aliases_in_remote: Vec::new(),
             image_collection: None,
-	    image_inspect: None,
+            image_inspect: None,
         }
     }
 }
@@ -85,9 +87,10 @@ pub fn show(mut options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool)
         anchor,
         anchor_offset,
         data_is_loading,
-	selected_image_name: _,
+        selected_image_name: _,
         image_in_local: _,
         image_in_remote: _,
+        image_aliases_in_remote: _,
         image_collection: _,
         image_inspect: _,
     } = options.clone();
@@ -113,9 +116,11 @@ pub fn show(mut options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool)
     if anchored {
         window = window.anchor(anchor, anchor_offset);
     }
-    let rect_size = ui.content_rect().size();
+    let ui_rect_size = ui.content_rect().size();
+    let window_size = egui::vec2(ui_rect_size.x / 2.0, ui_rect_size.y / 2.0);
     window
-        .default_pos(egui::pos2(rect_size.x / 2.0, rect_size.y / 2.0))
+        .default_pos(egui::pos2(ui_rect_size.x / 2.0, ui_rect_size.y / 2.0))
+        .fixed_size(window_size)
         .show(ui, |ui| ui_fn(&mut options, ui));
 }
 
@@ -133,146 +138,177 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         anchor: _,
         anchor_offset: _,
         data_is_loading: _,
-	selected_image_name,
+        selected_image_name,
         image_in_local,
         image_in_remote,
+        image_aliases_in_remote,
         image_collection,
         image_inspect,
     } = options;
 
     let Some(selected_image_name) = selected_image_name else {
         eprintln!("Window opened without selected_image_name");
-	ui.close_kind(egui::UiKind::Window);
+        ui.close_kind(egui::UiKind::Window);
         return;
     };
     let Some(image_collection) = image_collection else {
         eprintln!("Window opened without image_collection");
-	ui.close_kind(egui::UiKind::Window);
+        ui.close_kind(egui::UiKind::Window);
         return;
     };
     let Some(image_inspect) = image_inspect else {
         eprintln!("Window opened without image_inspect");
-	ui.close_kind(egui::UiKind::Window);
+        ui.close_kind(egui::UiKind::Window);
         return;
     };
     let image_names = &mut image_collection.image_aliases.clone();
 
     // TODO UiBuilder::new().max_rect(ui.max_rect())
-    
+
     egui::Grid::new("image_rows_grid_1")
         .num_columns(2)
         .spacing([20.0, 10.0])
         .striped(true)
         .show(ui, |ui| {
+            let id = image_collection.get_short_id();
 
-	    let id = image_collection.get_short_id();
-	    
-	    ui.label("Imagen local:");
-	    ui.label(selected_image_name.clone());
-	    ui.end_row();
-	    
-	    if image_names.len() > 1 {
-		ui.label("Otros nombres:");
-		// Remove the image from the list
-		if let Some(name_index) = image_names.iter().position(|x| x.get_image() == selected_image_name.clone()) {
-		    image_names.remove(name_index);
-		}
+            ui.label("Imagen local:");
+            ui.label(selected_image_name.clone());
+            ui.end_row();
 
-		egui::Grid::new("image_names_grid")
-		    .num_columns(1)
-		    .spacing([10.0, 4.0])
-		    .striped(true)
-		    .show(ui, |ui| {
-			for image in image_names {
-			    let name_str = if image.repository.starts_with("localhost") {
-				format!("{} (Sin nombre)", id.clone())
-			    } else {
-				image.get_image()
-			    };
-			    ui.label(name_str);
-			    ui.end_row();
-			}
-		    });
-		ui.end_row();
-	    };
-	    
-	    ui.label("ID local:");
-	    ui.label(format!("{id}"));
-	    ui.end_row();
-	    
-	    ui.label("Tamaño:");
-	    if let Some(image_size) = image_inspect.size {
-		ui.label(humansize::format_size(image_size as u64, humansize::DECIMAL));
-	    };
-	    ui.end_row();
-	    
-	    ui.label("Arquitectura:");
-	    let architecture = image_inspect.architecture.clone().unwrap_or(String::new());
-	    let mut os = image_inspect.os.clone().unwrap_or(String::new());
-	    if let Some(r) = os.get_mut(0..1) {
-		r.make_ascii_uppercase();
-	    }
-	    ui.label(format!("{architecture} ({os})"));
-	    ui.end_row();
-	    
-	    ui.label("Autor:");
-	    let author = image_inspect.author.clone().unwrap_or(String::new());
-	    ui.label(format!("{author}"));
-	    ui.end_row();
-	});
-    
+            if image_names.len() > 1 {
+                ui.label("Otros nombres:");
+                // Remove the image from the list
+                if let Some(name_index) = image_names
+                    .iter()
+                    .position(|x| x.get_image() == selected_image_name.clone())
+                {
+                    image_names.remove(name_index);
+                }
+
+                egui::Grid::new("image_names_grid")
+                    .num_columns(1)
+                    .spacing([10.0, 4.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for image in image_names {
+                            let name_str = if image.repository.starts_with("localhost") {
+                                format!("{} (Sin nombre)", id.clone())
+                            } else {
+                                image.get_image()
+                            };
+                            ui.label(name_str);
+                            ui.end_row();
+                        }
+                    });
+                ui.end_row();
+            };
+
+            ui.label("ID local:");
+            ui.label(format!("{id}"));
+            ui.end_row();
+
+            ui.label("Tamaño:");
+            if let Some(image_size) = image_inspect.size {
+                ui.label(humansize::format_size(
+                    image_size as u64,
+                    humansize::DECIMAL,
+                ));
+            };
+            ui.end_row();
+
+            ui.label("Arquitectura:");
+            let architecture = image_inspect.architecture.clone().unwrap_or(String::new());
+            let mut os = image_inspect.os.clone().unwrap_or(String::new());
+            if let Some(r) = os.get_mut(0..1) {
+                r.make_ascii_uppercase();
+            }
+            ui.label(format!("{architecture} ({os})"));
+            ui.end_row();
+
+            ui.label("Autor:");
+            let author = image_inspect.author.clone().unwrap_or(String::new());
+            ui.label(format!("{author}"));
+            ui.end_row();
+        });
+
     ui.separator();
-    
+
     egui::Grid::new("image_rows_grid_2")
         .num_columns(2)
         .spacing([20.0, 5.0])
         .striped(false)
         .show(ui, |ui| {
-	    ui.label("Está en local:");
-	    let local_str = match image_in_local {
-		Some(local) => {
-		    if *local {
-			"Sí"
-		    } else {
-			"No"
-		    }
-		}
-		None => "Desconocido",
-	    };
-	    ui.label(format!("{local_str}"));
-	    ui.end_row();
-	    
-	    ui.label("Subida en el Registro");
-	    let remote_str = match image_in_remote {
-		Some(remote_status) => match remote_status {
-		    RemoteImageStatus::Present => "Sí",
-		    RemoteImageStatus::Missing => "No",
-		    RemoteImageStatus::DateMismatch => "Sí, pero una versión distinta ⚠",
-		},
-		None => "Desconocido",
-	    };
-	    ui.label(format!("{remote_str}"));
-	    ui.end_row();
-	    // TODO Zot URL
-	    
-	});
+            ui.label("Está en local:");
+            let local_str = match image_in_local {
+                Some(local) => {
+                    if *local {
+                        "Sí"
+                    } else {
+                        "No"
+                    }
+                }
+                None => "Desconocido",
+            };
+            ui.label(format!("{local_str}"));
+            ui.end_row();
+
+            ui.label("Subida en el Registro:");
+            let mut any_image_in_remote = false;
+            let remote_str = match image_in_remote {
+                Some(remote_status) => match remote_status {
+                    RemoteImageStatus::Present => {
+                        any_image_in_remote = true;
+                        "Sí"
+                    }
+                    RemoteImageStatus::Missing => "No",
+                    RemoteImageStatus::DateMismatch => {
+                        any_image_in_remote = true;
+                        "Sí, pero una versión distinta ⚠"
+                    }
+                },
+                None => "Desconocido",
+            };
+            ui.label(format!("{remote_str}"));
+            ui.end_row();
+            // TODO Zot URL
+
+            if any_image_in_remote || image_aliases_in_remote.len() > 1 {
+                ui.label("Nombres en Registro:");
+                egui::Grid::new("image_rows_grid_2_alias_list")
+                    .num_columns(1)
+                    .spacing([10.0, 4.0])
+                    .striped(false)
+                    .show(ui, |ui| {
+                        for image in image_aliases_in_remote {
+                            ui.label(image.to_string());
+                            ui.end_row();
+                        }
+                    });
+                ui.end_row();
+            }
+        });
 
     ui.separator();
-    
+
     egui::Grid::new("image_rows_grid_3")
         .num_columns(2)
         .spacing([20.0, 10.0])
         .striped(false)
         .show(ui, |ui| {
-	    ui.horizontal(|ui| {
-		ui.label("Acciones: ");
-		if ui.button("🗑").on_hover_text(format!("Eliminar la imagen {selected_image_name}")).clicked() {
-		    println!("Eliminar {}", image_collection.get_id_value());
-		}
-	    });
-	    ui.end_row();
-	});
-    
+            ui.horizontal(|ui| {
+                ui.label("Acciones: ");
+                if ui
+                    .button("🗑")
+                    .on_hover_text(format!("Eliminar la imagen {selected_image_name}"))
+                    .clicked()
+                {
+                    println!("Eliminar {}", image_collection.get_id_value());
+                }
+            });
+            ui.end_row();
+        });
+
     //let on_top = Some(ui.layer_id()) == ui.ctx().top_layer_id();
     //ui.label(format!("This window is on top: {on_top}."));
 
