@@ -148,6 +148,31 @@ impl RepositoryInfo {
         println!("parsed name: {repo_name:?}");
         repo_name
     }
+
+    pub fn try_from_repo_tag(repo_tag: String) -> Result<Self> {
+        let mut repo_tag = repo_tag;
+        // Safety: if no ':', we assume the tag to be "latest", and append it
+        if !repo_tag.contains(':') {
+            repo_tag += ":latest";
+        }
+
+        // repo:tag. repo may also contain ":"
+        let mut repo_parts: Vec<&str> = repo_tag.split(':').collect();
+        let Some(tag_str) = repo_parts.pop() else {
+            return Err(Error::Program(
+                "invalid image format ({repo_tag})".to_string(),
+            ));
+        };
+        let mut repository_str = String::new();
+        for part in repo_parts {
+            repository_str += &format!("{part}:");
+        }
+        repository_str.pop(); // remove trailing ':'
+        Ok(RepositoryInfo {
+            repository: repository_str,
+            tag: tag_str.to_string(),
+        })
+    }
 }
 
 impl TryFrom<&ImageSummary> for ImageCollection {
@@ -157,17 +182,7 @@ impl TryFrom<&ImageSummary> for ImageCollection {
         let mut image_aliases = Vec::new();
         for repo_tag in image.repo_tags.clone() {
             // repo:tag (Optional)
-            let mut repo_parts = repo_tag.split(':');
-            let Some(repository_str) = repo_parts.next() else {
-                return Err(Error::Program("invalid img".to_string()));
-            };
-            let Some(tag_str) = repo_parts.last() else {
-                return Err(Error::Program("invalid img".to_string()));
-            };
-            image_aliases.push(RepositoryInfo {
-                repository: repository_str.to_string(),
-                tag: tag_str.to_string(),
-            });
+            image_aliases.push(RepositoryInfo::try_from_repo_tag(repo_tag)?);
         }
         let image_digests = image.repo_digests.clone();
         Ok(Self {
@@ -188,17 +203,7 @@ impl TryFrom<&ImageInspect> for ImageCollection {
         if let Some(repo_tags) = image.repo_tags.clone() {
             for repo_tag in repo_tags {
                 // repo:tag (Optional)
-                let mut repo_parts = repo_tag.split(':');
-                let Some(repository_str) = repo_parts.next() else {
-                    return Err(Error::Program("invalid img".to_string()));
-                };
-                let Some(tag_str) = repo_parts.last() else {
-                    return Err(Error::Program("invalid img".to_string()));
-                };
-                image_aliases.push(RepositoryInfo {
-                    repository: repository_str.to_string(),
-                    tag: tag_str.to_string(),
-                });
+                image_aliases.push(RepositoryInfo::try_from_repo_tag(repo_tag)?);
             }
         }
         let Some(id) = image.id.clone() else {
@@ -407,4 +412,53 @@ async fn pull_image(docker: &Docker) {
 #[allow(unused)]
 async fn push_image(docker: &Docker) {
     todo!()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repositoryinfo_strip_works() {
+        let mut info = RepositoryInfo {
+            repository: "domain.com/one/two".to_string(),
+            tag: String::new(),
+        };
+        assert_eq!(&info.get_stripped_repository(), "one/two");
+        info.repository = "domain.com:443/one/two".to_string();
+        assert_eq!(&info.get_stripped_repository(), "one/two");
+        info.repository = "192.168.1.1/one/two".to_string();
+        assert_eq!(&info.get_stripped_repository(), "one/two");
+        info.repository = "192.168.1.1:5000/one/two".to_string();
+        assert_eq!(&info.get_stripped_repository(), "one/two");
+        info.repository = "localhost/one/two".to_string();
+        assert_eq!(&info.get_stripped_repository(), "one/two");
+        info.repository = "one/two".to_string();
+        assert_eq!(&info.get_stripped_repository(), "one/two");
+    }
+
+    #[test]
+    fn repositoryinfo_from_image_works() {
+        // Usual cases
+        let info =
+            RepositoryInfo::try_from_repo_tag("domain.com/one/two:v1.0".to_string()).unwrap();
+        assert_eq!(info.repository, "domain.com/one/two");
+        assert_eq!(info.tag, "v1.0");
+        let info = RepositoryInfo::try_from_repo_tag("one/two:v1.0".to_string()).unwrap();
+        assert_eq!(info.repository, "one/two");
+        assert_eq!(info.tag, "v1.0");
+        // Repo contains port
+        let info =
+            RepositoryInfo::try_from_repo_tag("domain.com:5000/one/two:v1.0".to_string()).unwrap();
+        assert_eq!(info.repository, "domain.com:5000/one/two");
+        assert_eq!(info.tag, "v1.0");
+        let info =
+            RepositoryInfo::try_from_repo_tag("192.168.1.1:5000/one/two:v1.0".to_string()).unwrap();
+        assert_eq!(info.repository, "192.168.1.1:5000/one/two");
+        assert_eq!(info.tag, "v1.0");
+        // "latest" test
+        let info = RepositoryInfo::try_from_repo_tag("domain.com/one/two".to_string()).unwrap();
+        assert_eq!(info.repository, "domain.com/one/two");
+        assert_eq!(info.tag, "latest");
+    }
 }

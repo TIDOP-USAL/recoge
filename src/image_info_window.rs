@@ -177,7 +177,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
             ui.end_row();
 
             if image_names.len() > 1 {
-                ui.label("Otros nombres:");
+                ui.label("Otros nombres locales:");
                 // Remove the image from the list
                 if let Some(name_index) = image_names
                     .iter()
@@ -259,13 +259,10 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
                 Some(remote_status) => match remote_status {
                     RemoteImageStatus::Present => {
                         any_image_in_remote = true;
-                        "Sí"
+                        "Sí, misma versión"
                     }
                     RemoteImageStatus::Missing => "No",
-                    RemoteImageStatus::DateMismatch => {
-                        any_image_in_remote = true;
-                        "Sí, pero una versión distinta ⚠"
-                    }
+                    RemoteImageStatus::DateMismatch => "Sí, pero una versión distinta ⚠",
                 },
                 None => "Desconocido",
             };
