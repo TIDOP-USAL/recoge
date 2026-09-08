@@ -1,4 +1,5 @@
 use crate::container::ImageCollection;
+use crate::zot::ImageDisplayMetadata;
 use eframe::egui;
 use egui::Vec2b;
 
@@ -42,7 +43,7 @@ pub struct WindowOptions {
     pub selected_image_name: Option<String>,
     pub image_in_local: Option<bool>,
     pub image_in_remote: Option<RemoteImageStatus>,
-    pub image_aliases_in_remote: Vec<String>,
+    pub remote_images_metadata: Vec<ImageDisplayMetadata>,
     pub image_collection: Option<ImageCollection>,
     pub image_inspect: Option<bollard::models::ImageInspect>,
 }
@@ -66,7 +67,7 @@ impl Default for WindowOptions {
             selected_image_name: None,
             image_in_local: None,
             image_in_remote: None,
-            image_aliases_in_remote: Vec::new(),
+            remote_images_metadata: Vec::new(),
             image_collection: None,
             image_inspect: None,
         }
@@ -90,7 +91,7 @@ pub fn show(mut options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool)
         selected_image_name: _,
         image_in_local: _,
         image_in_remote: _,
-        image_aliases_in_remote: _,
+        remote_images_metadata: _,
         image_collection: _,
         image_inspect: _,
     } = options.clone();
@@ -141,7 +142,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         selected_image_name,
         image_in_local,
         image_in_remote,
-        image_aliases_in_remote,
+        remote_images_metadata,
         image_collection,
         image_inspect,
     } = options;
@@ -173,7 +174,12 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
             let id = image_collection.get_short_id();
 
             ui.label("Imagen local:");
-            ui.label(selected_image_name.clone());
+            ui.horizontal(|ui| {
+                ui.code(selected_image_name.clone());
+                if ui.button("📋").on_hover_text("Copiar nombre").clicked() {
+                    ui.ctx().copy_text(selected_image_name.clone());
+                }
+            });
             ui.end_row();
 
             if image_names.len() > 1 {
@@ -270,15 +276,31 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
             ui.end_row();
             // TODO Zot URL
 
-            if any_image_in_remote || image_aliases_in_remote.len() > 1 {
+            if any_image_in_remote || remote_images_metadata.len() > 1 {
                 ui.label("Nombres en Registro:");
                 egui::Grid::new("image_rows_grid_2_alias_list")
                     .num_columns(1)
                     .spacing([10.0, 4.0])
                     .striped(false)
                     .show(ui, |ui| {
-                        for image in image_aliases_in_remote {
-                            ui.label(image.to_string());
+                        for image in remote_images_metadata {
+                            ui.horizontal(|ui| {
+                                ui.label(image.full_alias_name.clone());
+                                if ui.button("📋").on_hover_text("Copiar nombre").clicked() {
+                                    ui.ctx().copy_text(image.full_alias_name.clone());
+                                }
+                                if ui
+                                    .button("🌐")
+                                    .on_hover_text("Abrir en navegador")
+                                    .clicked()
+                                {
+                                    let url = egui::OpenUrl {
+                                        url: image.http_url.clone(),
+                                        new_tab: true,
+                                    };
+                                    ui.open_url(url);
+                                }
+                            });
                             ui.end_row();
                         }
                     });

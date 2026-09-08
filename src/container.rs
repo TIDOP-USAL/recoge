@@ -115,7 +115,7 @@ pub struct Image {
     pub date: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, Ord, PartialOrd, Eq)]
 pub struct RepositoryInfo {
     pub repository: String,
     pub tag: String,

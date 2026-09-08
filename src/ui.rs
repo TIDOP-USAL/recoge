@@ -142,22 +142,22 @@ impl MyApp {
             };
             let mut image_in_remote_option = None;
             let mut remote_image_date_option = None;
-            let mut image_aliases_in_remote = Vec::new();
-	    // Image info
+            let mut remote_images_metadata = Vec::new();
+            // Image info
             if inspect_result.is_ok()
                 && image.has_image_name()
-		&& let Ok(remote_info) = image.clone().get_remote_info(&mut zot_client).await
-	    {
-		println!("zot returned: {remote_info:#?}");
-		// TODO refactor
-		image_in_remote_option = Some(remote_info.is_in_remote);
-		if remote_info.is_in_remote {
-		    remote_image_date_option = Some(remote_info.image_info.unwrap().date);
-		}
-	    }
+                && let Ok(remote_info) = image.clone().get_remote_info(&mut zot_client).await
+            {
+                println!("zot returned: {remote_info:#?}");
+                // TODO refactor
+                image_in_remote_option = Some(remote_info.is_in_remote);
+                if remote_info.is_in_remote {
+                    remote_image_date_option = Some(remote_info.image_info.unwrap().date);
+                }
+            }
 
             if let Err(x) = inspect_result {
-		println!("Error when inspecting local image: {x:?}");
+                println!("Error when inspecting local image: {x:?}");
                 let mut toasts = toasts_arc.lock().unwrap();
                 if x.is_not_found() {
                     toasts
@@ -169,71 +169,76 @@ impl MyApp {
                         .error("Error de conexión. Comprueba que Container está funcionando.")
                         .duration(std::time::Duration::from_secs(3));
                 }
-		let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
-		image_info_window_state.options.data_is_loading = false;
-		return;
-	    };
-	    let mut image_inspect = inspect_result.unwrap();
-	    //println!("image_inspect: {image_inspect:#?}");
+                let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
+                image_info_window_state.options.data_is_loading = false;
+                return;
+            };
+            let mut image_inspect = inspect_result.unwrap();
+            //println!("image_inspect: {image_inspect:#?}");
 
             let Ok(mut local_images) = container::ImageCollection::try_from(&image_inspect) else {
                 let mut toasts = toasts_arc.lock().unwrap();
                 toasts
                     .error("Error al leer la información de imagen.")
                     .duration(std::time::Duration::from_secs(3));
-		let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
-		image_info_window_state.options.data_is_loading = false;
-		return;
+                let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
+                image_info_window_state.options.data_is_loading = false;
+                return;
             };
             let local_date = image.date;
 
-	    // zot: Get associated images from all ImageCollection repos
-	    let mut remote_digests = Vec::new();
+            // zot: Get associated images from all ImageCollection repos
+            let mut remote_digests = Vec::new();
             if image.has_image_name() {
-		if let Ok(remote_images) = local_images.clone().get_images_in_remote(&mut zot_client).await {
-		    for remote_image in remote_images {
-			let remote_alias = format!("{}/{}", zot_client.get_registry_name(), remote_image.get_image_name());
-			// Date checks
-			let remote_date = remote_image.date;
-			println!(
-                            "Date check. Local: {local_date:?}. Remote {remote_alias}: {remote_date:?}"
+                if let Ok(remote_images) = local_images
+                    .clone()
+                    .get_images_in_remote(&mut zot_client)
+                    .await
+                {
+                    for remote_image in remote_images {
+                        // Date checks
+                        let remote_date = remote_image.date;
+                        println!(
+                            "Date check. Local: {local_date:?}. Remote {}: {remote_date:?}",
+                            remote_image.get_image_name()
                         );
                         let offset = local_date - remote_date;
-			if offset.abs().num_seconds() < 2 {
+                        if offset.abs().num_seconds() < 2 {
                             println!("Dates match, OK!");
-			    if let Some(digest) = remote_image.digests.first() {
-				 remote_digests.push(digest.clone());
-			    }
-			    image_aliases_in_remote.push(remote_alias);
-			}
-		    }
-		}
-	    }
-	    // Add any other repos that match the digest
-	    remote_digests.sort();
-	    remote_digests.dedup();
-	    for digest in remote_digests {
-		if let Ok(images) = zot_client.get_digest_images(digest).await {
-		    for image in images {
-			// Not checking against local image, since they have the same digest on the registry
-			let remote_alias = format!("{}/{}", zot_client.get_registry_name(), image.get_image_name());
-			println!("Added {remote_alias} by digest");
-			image_aliases_in_remote.push(remote_alias);
-		    }
-		}
-	    }
+                            if let Some(digest) = remote_image.digests.first() {
+                                remote_digests.push(digest.clone());
+                            }
+                            let image_metadata = zot_client.fill_image_metadata(remote_image);
+                            remote_images_metadata.push(image_metadata);
+                        }
+                    }
+                }
+            }
+            // Add any other repos that match the digest
+            remote_digests.sort();
+            remote_digests.dedup();
+            for digest in remote_digests {
+                if let Ok(images) = zot_client.get_digest_images(digest).await {
+                    for image in images {
+                        // Not checking against local image, since they have the same digest on the registry
+                        let image_metadata = zot_client.fill_image_metadata(image);
+                        println!("Added {} by digest", image_metadata.full_alias_name);
+                        remote_images_metadata.push(image_metadata);
+                    }
+                }
+            }
 
             let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
             image_info_window_state.options.data_is_loading = false;
 
-	    // BUGFIX, wrong size on inspect, use parent size
-	    local_images.size_bytes = image.size_bytes;
-	    image_inspect.size = image.size_bytes;
+            // BUGFIX, wrong size on inspect, use parent size
+            local_images.size_bytes = image.size_bytes;
+            image_inspect.size = image.size_bytes;
 
-	    //println!("local_images: {local_images:#?}");
+            //println!("local_images: {local_images:#?}");
             // Set window parameters. TODO send image itself?
             image_info_window_state.options.image_inspect = Some(image_inspect.clone());
-	    image_info_window_state.options.selected_image_name = Some(image.get_image_name());
+            image_info_window_state.options.selected_image_name = Some(image.get_image_name());
             image_info_window_state.options.image_collection = Some(local_images);
 
             image_info_window_state.options.image_in_local = Some(true);
@@ -243,9 +248,7 @@ impl MyApp {
                 image_info_window_state.options.image_in_remote = if in_remote {
                     // Image is in remote. Compare dates
                     if let Some(remote_date) = remote_image_date_option {
-                        println!(
-                            "Date check. Local: {local_date:?}. Remote: {remote_date:?}"
-                        );
+                        println!("Date check. Local: {local_date:?}. Remote: {remote_date:?}");
                         let offset = local_date - remote_date;
                         if offset.abs().num_seconds() < 2 {
                             println!("Dates match, OK!");
@@ -263,12 +266,12 @@ impl MyApp {
                     Some(RemoteImageStatus::Missing)
                 };
             }
-	    // TODO try to check through digests?
+            // TODO try to check through digests?
 
-	    // Extra repos from zot
-	    image_aliases_in_remote.sort();
-	    image_aliases_in_remote.dedup();
-	    image_info_window_state.options.image_aliases_in_remote = image_aliases_in_remote;
+            // Extra repos from zot
+            remote_images_metadata.sort();
+            remote_images_metadata.dedup();
+            image_info_window_state.options.remote_images_metadata = remote_images_metadata;
 
             // Open window
             image_info_window_state.open = true;

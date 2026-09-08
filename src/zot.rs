@@ -15,12 +15,34 @@ pub struct Client {
     password: String,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Ord, PartialOrd, Eq)]
+pub struct ImageDisplayMetadata {
+    pub full_alias_name: String,
+    pub repository_info: container::RepositoryInfo,
+    pub http_url: String,
+}
+
 impl Client {
     pub fn get_registry_name(&self) -> String {
         self.api_base_url
             .strip_prefix("https://")
             .unwrap_or(&self.api_base_url)
             .to_string()
+    }
+
+    // Don't call on an empty image
+    pub fn fill_image_metadata(&self, image: container::Image) -> ImageDisplayMetadata {
+        // No API calls
+        let registry_name = self.get_registry_name();
+        let repo_info = image.repository_info.clone().unwrap();
+        ImageDisplayMetadata {
+            full_alias_name: format!("{}/{}", registry_name, image.get_image_name()),
+            http_url: format!(
+                "https://{registry_name}/image/{}/tag/{}",
+                repo_info.repository, repo_info.tag
+            ),
+            repository_info: repo_info,
+        }
     }
 
     pub fn new(config: &AppConfig) -> Result<Self> {
