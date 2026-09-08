@@ -209,7 +209,19 @@ impl MyApp {
 		    }
 		}
 	    }
-	    // TODO Add any other repos that match the digest
+	    // Add any other repos that match the digest
+	    remote_digests.sort();
+	    remote_digests.dedup();
+	    for digest in remote_digests {
+		if let Ok(images) = zot_client.get_digest_images(digest).await {
+		    for image in images {
+			// Not checking against local image, since they have the same digest on the registry
+			let remote_alias = format!("{}/{}", zot_client.get_registry_name(), image.get_image_name());
+			println!("Added {remote_alias} by digest");
+			image_aliases_in_remote.push(remote_alias);
+		    }
+		}
+	    }
 
             let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
             image_info_window_state.options.data_is_loading = false;

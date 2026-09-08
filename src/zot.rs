@@ -200,9 +200,44 @@ impl Client {
         };
         let mut images = Vec::new();
         let data = body.data.ImageList.Results;
-        println!("{data:#?}");
+        println!("Repo {repo} : {data:#?}");
         for image in data {
-            println!("Image: {image:#?}");
+            images.push(container::Image::try_from(&image)?);
+        }
+        Ok(images)
+    }
+
+    /// May return an empty list
+    pub async fn get_digest_images(&mut self, digest: String) -> Result<Vec<container::Image>> {
+        let query = format!(
+            r#"query=
+{{
+  ImageListForDigest (id: "{digest}") {{
+    Results {{
+      Tag
+      RepoName
+      Digest
+      LastUpdated
+      Size
+      DownloadCount
+    }}
+  }}
+}}
+"#
+        );
+        let response = self.graphql_client(query).await?;
+
+        let body: DigestImageListResponse = match response.json().await {
+            Ok(x) => x,
+            Err(x) => {
+                println!("error: {x:?}");
+                return Err(Error::Program("Can't decode Zot response".to_string()));
+            }
+        };
+        let mut images = Vec::new();
+        let data = body.data.ImageListForDigest.Results;
+        println!("Digest {digest} : {data:#?}");
+        for image in data {
             images.push(container::Image::try_from(&image)?);
         }
         Ok(images)
@@ -383,6 +418,8 @@ pub struct ImageListImage {
     pub LastUpdated: DateTime<Utc>,
     #[serde(deserialize_with = "deserialize_number_from_string")]
     pub Size: i64,
+    #[serde(deserialize_with = "deserialize_number_from_string")]
+    pub DownloadCount: i64,
 }
 
 impl TryFrom<&ImageListImage> for container::Image {
@@ -411,13 +448,15 @@ impl container::ImageCollection {
         let mut repos = Vec::new();
         for image_repo_info in local_image.image_aliases {
             let repo = image_repo_info.get_stripped_repository();
+            if repo.contains("localhost") {
+                continue;
+            }
             repos.push(repo);
         }
         repos.sort();
         repos.dedup();
         let mut image_aliases = Vec::new();
         for repo in repos {
-            //if repo.contains("localhost") { continue; }
             println!("Querying images in repo {repo}");
             let repo_images = client.get_repo_images(repo).await?;
             for image in repo_images {
@@ -442,4 +481,16 @@ impl container::ImageCollection {
         aliases.dedup();
         Ok(aliases)
     }
+}
+
+#[allow(non_snake_case)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DigestImageListResponse {
+    pub data: DigestImageListHolder,
+}
+
+#[allow(non_snake_case)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DigestImageListHolder {
+    pub ImageListForDigest: ImageList,
 }
