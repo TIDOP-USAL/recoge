@@ -532,7 +532,8 @@ impl MyApp {
                 if !image_name.contains(':') {
                     image_name.push_str(" (Sin nombre)");
                 }
-                ui.label(image_name.to_string());
+                ui.label(image_name.to_string())
+                    .on_hover_text(image_name.clone());
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
                     if ui.button("⬆").on_hover_text("Subir a Registro").clicked() {
@@ -562,11 +563,16 @@ impl MyApp {
             });
             row.col(|ui| {
                 //ui.add(egui::Separator::default().horizontal());
-                ui.label(image.get_short_id());
+                ui.label(image.get_short_id())
+                    .on_hover_text(image.id.clone());
             });
             row.col(|ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-                ui.label(image.get_date_local());
+                ui.label(format!(
+                    "({}) {}",
+                    image.get_relative_date(),
+                    image.get_date_local()
+                ));
             });
 
             //self.toggle_row_selection(row_index, &row.response());
