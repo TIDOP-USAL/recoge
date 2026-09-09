@@ -46,7 +46,7 @@ pub struct ImageTableData {
 }
 
 #[derive(PartialEq)]
-pub enum ConfigState {
+pub enum LoadState {
     NotLoaded,
     Loading,
     Loaded,
@@ -54,7 +54,7 @@ pub enum ConfigState {
 
 pub struct GlobalData {
     pub version: String,
-    pub config_state: ConfigState,
+    pub config_state: LoadState,
     pub config: AppConfig,
 }
 
@@ -62,7 +62,7 @@ pub struct MyApp {
     global_data: Arc<Mutex<GlobalData>>,
     toasts: Arc<Mutex<Toasts>>,
     image_list: Arc<Mutex<Vec<Image>>>,
-    image_list_loaded: Arc<Mutex<bool>>,
+    image_list_loaded: Arc<Mutex<LoadState>>,
     data: Task<()>,
     upload_window_state: Arc<Mutex<upload_window::WindowState>>,
     image_info_window_state: Arc<Mutex<image_info_window::WindowState>>,
@@ -77,7 +77,7 @@ impl MyApp {
 
         self.data.fire_async(async move {
             let Ok(config) = AppConfig::get_config() else {
-                //global_data.config_state = ConfigState::NotLoaded;
+                //global_data.config_state = LoadState::NotLoaded;
                 // This would trigger this fn again
                 let mut toasts = toasts_arc.lock().unwrap();
                 toasts
@@ -87,7 +87,7 @@ impl MyApp {
             };
             let mut global_data = global_data_arc.lock().unwrap();
             global_data.config = config;
-            global_data.config_state = ConfigState::Loaded;
+            global_data.config_state = LoadState::Loaded;
             println!("Config loaded!");
             if global_data.config.is_missing_credentials() {
                 let mut toasts = toasts_arc.lock().unwrap();
@@ -105,7 +105,7 @@ impl MyApp {
 
         self.data.fire_async(async move {
             //tokio::task::spawn_local(async move {
-            *image_list_loaded_arc.lock().unwrap() = false;
+            *image_list_loaded_arc.lock().unwrap() = LoadState::NotLoaded;
             let Ok(mut images) = container::bollard_image_list().await else {
                 let mut toasts = toasts_arc.lock().unwrap();
                 toasts
@@ -118,7 +118,7 @@ impl MyApp {
             // TODO collection groups
             image_list.append(&mut images);
             image_list.sort_by_key(|x| x.date); // Oldest image first
-            *image_list_loaded_arc.lock().unwrap() = true;
+            *image_list_loaded_arc.lock().unwrap() = LoadState::Loaded;
         });
     }
 
@@ -336,7 +336,7 @@ impl Default for MyApp {
         }
         Self {
             global_data: Arc::new(Mutex::new(GlobalData {
-                config_state: ConfigState::NotLoaded,
+                config_state: LoadState::NotLoaded,
                 config: config::AppConfig::default(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
             })),
@@ -344,7 +344,7 @@ impl Default for MyApp {
                 Toasts::default().with_anchor(egui_notify::Anchor::BottomRight),
             )),
             image_list: Arc::new(Mutex::new(image_list)),
-            image_list_loaded: Arc::new(Mutex::new(true)),
+            image_list_loaded: Arc::new(Mutex::new(LoadState::NotLoaded)),
             data: Task::new(),
             upload_window_state: Arc::new(Mutex::new(upload_window::WindowState::default())),
             config_window_state: Arc::new(Mutex::new(config_window::WindowState::default())),
@@ -362,8 +362,8 @@ impl eframe::App for MyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let global_data_arc = Arc::clone(&self.global_data);
         let mut global_data = global_data_arc.lock().unwrap();
-        if global_data.config_state == ConfigState::NotLoaded {
-            global_data.config_state = ConfigState::Loading;
+        if global_data.config_state == LoadState::NotLoaded {
+            global_data.config_state = LoadState::Loading;
             self.get_config();
         }
 
@@ -431,12 +431,16 @@ impl eframe::App for MyApp {
 
             ui.separator();
 
-            ui.horizontal(|ui| {
-                if !*self.image_list_loaded.lock().unwrap() {
+            ui.horizontal(|ui| match *self.image_list_loaded.lock().unwrap() {
+                LoadState::Loaded => {
+                    ui.label("Lista cargada");
+                }
+                LoadState::Loading => {
                     ui.label("Cargando lista ");
                     ui.spinner();
-                } else {
-                    ui.label("Lista cargada");
+                }
+                LoadState::NotLoaded => {
+                    ui.label("Lista no cargada");
                 }
             });
 

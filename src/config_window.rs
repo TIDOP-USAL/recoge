@@ -30,6 +30,7 @@ pub struct WindowOptions {
     pub app_config_copy: AppConfig,
     pub global_data_arc: Arc<Mutex<GlobalData>>,
     pub toasts_arc: Arc<Mutex<Toasts>>,
+    unsaved_changes: bool,
 }
 
 impl Default for WindowOptions {
@@ -37,7 +38,7 @@ impl Default for WindowOptions {
         Self {
             title: "Configuración".to_owned(),
             title_bar: true,
-            closable: true,
+            closable: false,
             collapsible: false,
             movable: true,
             resizable: false,
@@ -48,11 +49,12 @@ impl Default for WindowOptions {
             anchor_offset: egui::Vec2::ZERO,
             app_config_copy: AppConfig::default(),
             global_data_arc: Arc::new(Mutex::new(GlobalData {
-                config_state: crate::ui::ConfigState::NotLoaded,
+                config_state: crate::ui::LoadState::NotLoaded,
                 config: crate::configuration::AppConfig::default(),
                 version: String::new(),
             })),
             toasts_arc: Arc::new(Mutex::new(Toasts::default())),
+            unsaved_changes: false,
         }
     }
 }
@@ -77,7 +79,7 @@ pub fn show(options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool) {
     } = options.clone();*/
     let title = options.title.clone();
     let title_bar = options.title_bar;
-    let closable = options.closable;
+    let _closable = options.closable;
     let collapsible = options.collapsible;
     let movable = options.movable;
     let resizable = options.resizable;
@@ -102,9 +104,8 @@ pub fn show(options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool) {
         .scroll(scroll2)
         .constrain_to(ui.available_rect_before_wrap())
         .enabled(enabled);
-    if closable {
-        window = window.open(open);
-    }
+    window = window.open(open);
+
     if anchored {
         window = window.anchor(anchor, anchor_offset);
     }
@@ -130,16 +131,33 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         app_config_copy,
         global_data_arc,
         toasts_arc,
+        unsaved_changes,
     } = options;
 
     // We work on app_config_copy. On edit, we call config_update. On save, we also call config_save
 
+    ui.add_space(2.0);
     ui.label("Credenciales de Registro de Contenedores:");
-    ui.separator();
+    ui.add_space(10.0);
+
+    fn update_temporal_config(
+        unsaved_changes: &mut bool,
+        new_config: &AppConfig,
+        global_data_arc: &Arc<Mutex<GlobalData>>,
+    ) {
+        let mut tasks: Task<()> = Task::new();
+        let global_data_arc = Arc::clone(global_data_arc);
+        let new_config = new_config.clone();
+        *unsaved_changes = true;
+        tasks.fire_async(async move {
+            println!("Updating temporal config");
+            config_update(new_config, &global_data_arc);
+        });
+    }
 
     egui::Grid::new("config_rows_grid_1")
         .num_columns(2)
-        .spacing([20.0, 2.0])
+        .spacing([20.0, 5.0])
         .striped(false)
         .show(ui, |ui| {
             ui.label("Dirección del Registro:");
@@ -149,13 +167,11 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
                 registry_ui.request_focus();
             });
             if registry_ui.changed() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                let mut tasks: Task<()> = Task::new();
-                let global_data_arc = Arc::clone(global_data_arc);
-                let new_config = app_config_copy.clone();
-                tasks.fire_async(async move {
-                    println!("async works");
-                    config_update(new_config, &global_data_arc);
-                });
+                update_temporal_config(
+                    unsaved_changes,
+                    &app_config_copy,
+                    &Arc::clone(&global_data_arc),
+                );
             }
             ui.end_row();
 
@@ -166,13 +182,11 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
                 user_ui.request_focus();
             });
             if user_ui.changed() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                let mut tasks: Task<()> = Task::new();
-                let global_data_arc = Arc::clone(global_data_arc);
-                let new_config = app_config_copy.clone();
-                tasks.fire_async(async move {
-                    println!("async works");
-                    config_update(new_config, &global_data_arc);
-                });
+                update_temporal_config(
+                    unsaved_changes,
+                    &app_config_copy,
+                    &Arc::clone(&global_data_arc),
+                );
             }
             ui.end_row();
 
@@ -186,7 +200,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
 
                 let response = ui
                     .selectable_label(show_plaintext, "👁")
-                    .on_hover_text("Show/hide password");
+                    .on_hover_text("Mostrar/ocultar contraseña");
                 if response.clicked() {
                     show_plaintext = !show_plaintext;
                 }
@@ -199,13 +213,11 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
                     password_ui.request_focus();
                 });
                 if password_ui.changed() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    let mut tasks: Task<()> = Task::new();
-                    let global_data_arc = Arc::clone(global_data_arc);
-                    let new_config = app_config_copy.clone();
-                    tasks.fire_async(async move {
-                        println!("async works");
-                        config_update(new_config, &global_data_arc);
-                    });
+                    update_temporal_config(
+                        unsaved_changes,
+                        &app_config_copy,
+                        &Arc::clone(&global_data_arc),
+                    );
                 }
             });
 
@@ -214,17 +226,19 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
             ui.end_row();
         });
 
+    ui.add_space(6.0);
     ui.separator();
+    ui.add_space(4.0);
     ui.horizontal(|ui| {
-        //ui.label("Acciones: ");
-
         let mut bottom_btn_ui = ui.new_child(
             UiBuilder::new()
                 .max_rect(ui.max_rect())
                 .layout(Layout::right_to_left(Align::Max)),
         );
+
+        let save_button = egui::Button::new("Guardar y salir");
         if bottom_btn_ui
-            .button("Guardar")
+            .add_enabled(*unsaved_changes, save_button)
             .on_hover_text("Guardar la configuración permanentemente")
             .clicked()
         {
@@ -233,11 +247,13 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
             let global_data_arc = Arc::clone(global_data_arc);
             let toasts_arc = Arc::clone(toasts_arc);
             let new_config = app_config_copy.clone();
+            ui.close_kind(egui::UiKind::Window);
             tasks.fire_async(async move {
                 config_update(new_config, &Arc::clone(&global_data_arc));
                 config_save(&Arc::clone(&global_data_arc), &toasts_arc);
             });
         }
+        bottom_btn_ui.add_space(1.0);
         if bottom_btn_ui
             .button("Salir")
             .on_hover_text("Salir")
@@ -245,9 +261,8 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         {
             ui.close_kind(egui::UiKind::Window);
         }
-
-        ui.separator();
     });
+    ui.add_space(8.0);
 
     //let on_top = Some(ui.layer_id()) == ui.ctx().top_layer_id();
     //ui.label(format!("This window is on top: {on_top}."));
