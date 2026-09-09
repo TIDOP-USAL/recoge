@@ -2,6 +2,7 @@ use crate::config_window;
 use crate::configuration as config;
 use crate::container;
 use crate::image_info_window;
+use crate::remote_list_window;
 use crate::tasks::Task;
 use crate::upload_window;
 use crate::zot;
@@ -66,6 +67,7 @@ pub struct MyApp {
     data: Task<()>,
     upload_window_state: Arc<Mutex<upload_window::WindowState>>,
     image_info_window_state: Arc<Mutex<image_info_window::WindowState>>,
+    remote_list_window_state: Arc<Mutex<remote_list_window::WindowState>>,
     config_window_state: Arc<Mutex<config_window::WindowState>>,
     image_table_data: ImageTableData,
 }
@@ -279,6 +281,7 @@ impl MyApp {
     }
 
     pub fn load_remote_list(&mut self, config: AppConfig) {
+        let remote_list_window_state_arc = Arc::clone(&self.remote_list_window_state);
         let toasts_arc = Arc::clone(&self.toasts);
 
         self.data.fire_async(async move {
@@ -308,6 +311,11 @@ impl MyApp {
             println!("is in remote: {is_in_remote:?}");
             let is_in_local = last_image.is_in_local().await;
             println!("is in local: {is_in_local:?}");
+            // Set window parameters
+            let window_state = &mut *remote_list_window_state_arc.lock().unwrap();
+            window_state.options.remote_image_list = list;
+            // Open window
+            window_state.open = true;
         });
     }
 }
@@ -348,6 +356,9 @@ impl Default for MyApp {
             data: Task::new(),
             upload_window_state: Arc::new(Mutex::new(upload_window::WindowState::default())),
             config_window_state: Arc::new(Mutex::new(config_window::WindowState::default())),
+            remote_list_window_state: Arc::new(Mutex::new(
+                remote_list_window::WindowState::default(),
+            )),
             image_info_window_state: Arc::new(
                 Mutex::new(image_info_window::WindowState::default()),
             ),
@@ -391,6 +402,13 @@ impl eframe::App for MyApp {
             &mut config_window_state.options,
             ui,
             &mut config_window_state.open,
+        );
+        let remote_list_window_state_arc = Arc::clone(&self.remote_list_window_state);
+        let remote_list_window_state = &mut *remote_list_window_state_arc.lock().unwrap();
+        remote_list_window::show(
+            &mut remote_list_window_state.options,
+            ui,
+            &mut remote_list_window_state.open,
         );
         //println!("{}",image_info_window_state.open);
         if image_info_window_state.options.data_is_loading {

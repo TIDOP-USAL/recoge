@@ -320,6 +320,13 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
                 {
                     println!("Eliminar {}", image_collection.get_id_value());
                 }
+                /*if ui
+                    .button("⬆")
+                    .on_hover_text(format!("Subir a registro {selected_image_name}"))
+                    .clicked()
+                {
+                    println!("Eliminar {}", image_collection.get_id_value());
+                }*/
             });
             ui.end_row();
         });

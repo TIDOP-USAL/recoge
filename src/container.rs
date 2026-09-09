@@ -168,6 +168,14 @@ impl RepositoryInfo {
             repository_str += &format!("{part}:");
         }
         repository_str.pop(); // remove trailing ':'
+
+        if repository_str.starts_with("localhost/") {
+            // TODO this is metadata: locally tagged image
+            repository_str = repository_str
+                .strip_prefix("localhost/")
+                .unwrap()
+                .to_string();
+        }
         Ok(RepositoryInfo {
             repository: repository_str,
             tag: tag_str.to_string(),

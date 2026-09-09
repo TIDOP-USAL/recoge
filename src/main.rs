@@ -6,6 +6,7 @@ pub mod configuration;
 pub mod container;
 pub mod error;
 pub mod image_info_window;
+pub mod remote_list_window;
 pub mod tasks;
 pub mod ui;
 pub mod upload_window;
