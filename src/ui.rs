@@ -398,28 +398,38 @@ impl eframe::App for MyApp {
         }
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
-            ui.heading(format!("recoge v{}", global_data.version));
+            ui.horizontal(|ui| {
+                let logo = egui::include_image!("logo.svg");
+                ui.set_height(20.4);
+                ui.add_space(1.0);
+                ui.add(egui::Image::new(logo.clone()));
+                ui.add_space(3.2);
+                let heading_str = format!("recoge v{}", global_data.version);
+                let heading =
+                    egui::Label::new(egui::RichText::new(heading_str).heading().size(16.0));
+                ui.add(heading);
+            });
 
-            let mut reset_btn_ui = ui.new_child(
+            let mut top_toolbar_ui = ui.new_child(
                 UiBuilder::new()
                     .max_rect(ui.max_rect())
                     .layout(Layout::right_to_left(Align::Min)),
             );
-            if reset_btn_ui
+            if top_toolbar_ui
                 .button("⟲")
                 .on_hover_text("Recargar lista de imágenes")
                 .clicked()
             {
                 self.update_list();
             }
-            if reset_btn_ui
+            if top_toolbar_ui
                 .button("R")
                 .on_hover_text("Lista de imágenes remotas")
                 .clicked()
             {
                 self.load_remote_list(global_data.config.clone());
             }
-            if reset_btn_ui
+            if top_toolbar_ui
                 .button("⚙")
                 .on_hover_text("Configuración")
                 .clicked()
@@ -445,9 +455,11 @@ impl eframe::App for MyApp {
             });
 
             ui.label("Imágenes locales:".to_string());
-
+            ui.add_space(10.0);
+            ui.separator();
             let date_rev = &mut self.image_table_data.date_reversed;
             let available_height = ui.available_height();
+
             let _table = TableBuilder::new(ui)
                 .striped(true)
                 .resizable(true)
@@ -463,7 +475,7 @@ impl eframe::App for MyApp {
                 .column(Column::auto())
                 .min_scrolled_height(0.0)
                 .max_scroll_height(available_height)
-                .header(30.0, |mut header| {
+                .header(21.0, |mut header| {
                     header.col(|ui| {
                         ui.strong("Nombre/Tag");
                     });

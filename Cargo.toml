@@ -16,7 +16,7 @@ eframe = { version = "0.34.3", features = [
 ] }
 
 # For image support:
-egui_extras = { version = "0.34.3", features = ["default", "image"] }
+egui_extras = { version = "0.34.3", features = ["default", "svg"] }
 
 env_logger = { version = "0.11.10", features = ["auto-color", "humantime"] }
 futures-lite = "2.6.1"
