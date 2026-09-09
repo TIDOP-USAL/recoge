@@ -135,6 +135,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
     // We work on app_config_copy. On edit, we call config_update. On save, we also call config_save
 
     ui.label("Credenciales de Registro de Contenedores:");
+    ui.separator();
 
     egui::Grid::new("config_rows_grid_1")
         .num_columns(2)
@@ -144,7 +145,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
             ui.label("Dirección del Registro:");
             let registry_ui = ui.text_edit_singleline(&mut app_config_copy.remote_url);
             registry_ui.context_menu(|ui| {
-                textedit_context_menu(ui, &mut app_config_copy.password);
+                textedit_context_menu(ui, &mut app_config_copy.remote_url);
                 registry_ui.request_focus();
             });
             if registry_ui.changed() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -161,7 +162,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
             ui.label("Usuario:");
             let user_ui = ui.text_edit_singleline(&mut app_config_copy.user);
             user_ui.context_menu(|ui| {
-                textedit_context_menu(ui, &mut app_config_copy.password);
+                textedit_context_menu(ui, &mut app_config_copy.user);
                 user_ui.request_focus();
             });
             if user_ui.changed() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -180,7 +181,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
             ui.label("Contraseña:");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 /*if ui.button("X").on_hover_text("Borrar contraseña").clicked() {
-                    app_config_copy.password = String::new();
+                    app_config_copy.password.clear();
                 }*/
 
                 let response = ui
@@ -276,16 +277,16 @@ fn config_save(global_data_arc: &Arc<Mutex<GlobalData>>, toasts_arc: &Arc<Mutex<
 }
 
 fn textedit_context_menu(ui: &mut egui::Ui, content: &mut String) {
-    if ui.button("Copiar").clicked() {
+    if ui.button("Copiar todo").clicked() {
         ui.ctx().copy_text(content.clone());
         ui.close();
     }
     if ui.button("Pegar y reemplazar").clicked() {
-        *content = String::new();
+        content.clear();
         ui.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
         ui.close();
     }
     if ui.button("Borrar").clicked() {
-        *content = String::new();
+        content.clear();
     }
 }

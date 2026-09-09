@@ -164,21 +164,19 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
     };
     let image_names = &mut image_collection.image_aliases.clone();
 
-    // TODO UiBuilder::new().max_rect(ui.max_rect())
-
     egui::Grid::new("image_rows_grid_1")
         .num_columns(2)
         .spacing([20.0, 10.0])
         .striped(true)
         .show(ui, |ui| {
             let id = image_collection.get_short_id();
-
             ui.label("Imagen local:");
             ui.horizontal(|ui| {
                 ui.code(selected_image_name.clone());
                 if ui.button("📋").on_hover_text("Copiar nombre").clicked() {
                     ui.ctx().copy_text(selected_image_name.clone());
                 }
+                ui.add_sized(ui.available_size(), egui::Label::new("")); // fill grid
             });
             ui.end_row();
 
@@ -198,12 +196,11 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
                     .striped(true)
                     .show(ui, |ui| {
                         for image in image_names {
-                            let name_str = if image.repository.starts_with("localhost") {
-                                format!("{} (Sin nombre)", id.clone())
-                            } else {
-                                image.get_image()
-                            };
-                            ui.label(name_str);
+                            let image_name = image.get_image();
+                            ui.label(&image_name);
+                            if ui.button("📋").on_hover_text("Copiar nombre").clicked() {
+                                ui.ctx().copy_text(image_name.clone());
+                            }
                             ui.end_row();
                         }
                     });
@@ -237,7 +234,6 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
             ui.label(format!("{author}"));
             ui.end_row();
         });
-
     ui.separator();
 
     egui::Grid::new("image_rows_grid_2")
@@ -316,7 +312,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         .striped(false)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label("Acciones: ");
+                ui.label("Acciones locales: ");
                 if ui
                     .button("🗑")
                     .on_hover_text(format!("Eliminar la imagen {selected_image_name}"))
