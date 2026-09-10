@@ -108,10 +108,18 @@ impl MyApp {
         self.data.fire_async(async move {
             //tokio::task::spawn_local(async move {
             *image_list_loaded_arc.lock().unwrap() = LoadState::NotLoaded;
-            let Ok(mut images) = container::bollard_image_list().await else {
+            let Ok(docker) = container::Client::new().await else {
+                toasts_arc
+                    .lock()
+                    .unwrap()
+                    .error("Error de conexión. Comprueba que Docker esté funcionando.")
+                    .duration(std::time::Duration::from_secs(3));
+                return;
+            };
+            let Ok(mut images) = docker.image_list().await else {
                 let mut toasts = toasts_arc.lock().unwrap();
                 toasts
-                    .error("Error de conexión. Comprueba que Docker esté funcionando.")
+                    .error("No se puede obtener la lista de imágenes.")
                     .duration(std::time::Duration::from_secs(3));
                 return;
             };
@@ -131,8 +139,16 @@ impl MyApp {
 
         self.data.fire_async(async move {
             println!("Inspecting: {}", image.get_image_name());
+            let Ok(docker) = container::Client::new().await else {
+                toasts_arc
+                    .lock()
+                    .unwrap()
+                    .error("Error de conexión. Comprueba que Docker esté funcionando.")
+                    .duration(std::time::Duration::from_secs(3));
+                return;
+            };
             // Inspect local image
-            let inspect_result = container::bollard_image_inspect(image.get_image_name()).await;
+            let inspect_result = docker.image_inspect(image.get_image_name()).await;
 
             // Get remote image info
             let Ok(mut zot_client) = zot::Client::new(&config) else {
@@ -168,7 +184,7 @@ impl MyApp {
                 } else {
                     // TODO 500 normalizing.
                     toasts
-                        .error("Error de conexión. Comprueba que Container está funcionando.")
+                        .error("Error de conexión. Comprueba que Docker está funcionando.")
                         .duration(std::time::Duration::from_secs(3));
                 }
                 let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
@@ -314,6 +330,7 @@ impl MyApp {
             // Set window parameters
             let window_state = &mut *remote_list_window_state_arc.lock().unwrap();
             window_state.options.remote_image_list = list;
+            window_state.options.app_config = config.clone();
             // Open window
             window_state.open = true;
         });

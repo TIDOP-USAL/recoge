@@ -7,6 +7,7 @@ use bollard::{Docker, plugin::ImageSummary};
 use chrono::{DateTime, Local, Utc};
 use futures_lite::stream::StreamExt;
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
 
 /*
 #[allow(non_snake_case, non_camel_case_types)]
@@ -312,7 +313,8 @@ impl Image {
     }
 
     pub async fn is_in_local(&self) -> Result<bool> {
-        match bollard_image_inspect(self.get_image_name()).await {
+        let docker = Client::new().await?;
+        match docker.image_inspect(self.get_image_name()).await {
             Ok(_) => Ok(true),
             Err(x) => {
                 if x.is_not_found() {
@@ -325,126 +327,161 @@ impl Image {
     }
 }
 
-pub async fn connect() -> Result<Docker> {
-    println!("Connecting to Docker...");
-    let mut docker = Docker::connect_with_local_defaults();
+pub struct Client {
+    client: Docker,
+}
 
-    #[cfg(not(target_os = "windows"))]
-    {
-        if docker.is_err() {
-            println!("Connecting to Podman...");
-            docker = Docker::connect_with_podman_defaults();
-        }
-    }
-    #[cfg(target_family = "unix")]
-    {
-        if docker.is_err() {
-            println!("Connecting with UNIX sockets...");
-            docker = Docker::connect_with_socket_defaults();
+impl Client {
+    pub async fn new() -> Result<Self> {
+        println!("Connecting to Docker...");
+        let mut docker = Docker::connect_with_local_defaults();
+
+        #[cfg(not(target_os = "windows"))]
+        {
             if docker.is_err() {
-                let home_dir = match std::env::home_dir() {
-                    Some(x) => {
-                        let str = x.into_os_string();
-                        str.to_str().unwrap_or("~").to_string()
-                    }
-                    None => "~".to_string(),
-                };
-                println!("Connecting with macOS UNIX sockets...");
-                docker = Docker::connect_with_socket(
-                    &format!("{home_dir}/.docker/run/docker.sock"),
-                    120,
-                    bollard::API_DEFAULT_VERSION,
-                );
+                println!("Connecting to Podman...");
+                docker = Docker::connect_with_podman_defaults();
             }
         }
-    }
-    let docker = match docker {
-        Ok(x) => x,
-        Err(x) => {
-            println!("Can't connect: {x:?}");
-            return Err(Error::Program(
-                "Can't connect to container services".to_string(),
-            ));
+        #[cfg(target_family = "unix")]
+        {
+            if docker.is_err() {
+                println!("Connecting with UNIX sockets...");
+                docker = Docker::connect_with_socket_defaults();
+                if docker.is_err() {
+                    let home_dir = match std::env::home_dir() {
+                        Some(x) => {
+                            let str = x.into_os_string();
+                            str.to_str().unwrap_or("~").to_string()
+                        }
+                        None => "~".to_string(),
+                    };
+                    println!("Connecting with macOS UNIX sockets...");
+                    docker = Docker::connect_with_socket(
+                        &format!("{home_dir}/.docker/run/docker.sock"),
+                        120,
+                        bollard::API_DEFAULT_VERSION,
+                    );
+                }
+            }
         }
-    };
-    println!("Connected!");
-    //println!("{docker:?}");
-    Ok(docker)
-}
-
-// TODO fix bug: "localhost:5000" is not correctly parsed
-// Image list, grouped by same image
-pub async fn bollard_image_collection_list() -> Result<Vec<ImageCollection>> {
-    let docker = connect().await?;
-    println!("Getting image list...");
-    let options = ListImagesOptionsBuilder::default().all(false).build();
-    let images = match docker.list_images(Some(options)).await {
-        Ok(images) => images,
-        Err(x) => {
-            let err_str = x.to_string();
-            eprintln!("{err_str}");
-            return Err(Error::Program(err_str));
-        }
-    };
-
-    let mut list = Vec::new();
-    for summary in images {
-        let Ok(image_collection) = ImageCollection::try_from(&summary) else {
-            println!("Error: skipping invalid image collection");
-            continue;
+        let docker = match docker {
+            Ok(x) => x,
+            Err(x) => {
+                println!("Can't connect: {x:?}");
+                return Err(Error::Program(
+                    "Can't connect to container services".to_string(),
+                ));
+            }
         };
-        list.push(image_collection);
+        println!("Connected!");
+        //println!("{docker:?}");
+        Ok(Self { client: docker })
     }
-    println!("{list:#?}");
-    Ok(list)
-}
 
-// Ungrouped, raw image repos:tags list
-pub async fn bollard_image_list() -> Result<Vec<Image>> {
-    let collections = bollard_image_collection_list().await?;
-    let mut images = Vec::new();
-    for collection in collections {
-        let id = collection.get_short_id();
-        let size = collection.size_bytes;
-        println!("Size collection {id}: {size:?}");
-        images.append(&mut collection.to_images());
-    }
-    println!("{images:#?}");
-    Ok(images)
-}
-
-pub async fn bollard_image_inspect(image: String) -> Result<ImageInspect> {
-    let docker = connect().await?;
-    println!("Inspecting image!");
-    // TODO bug: Docker returns wrong size here?. Correct one on image_list.
-    match docker.inspect_image(&image).await {
-        Ok(image) => Ok(image.clone()),
-        Err(x) => {
-            let err_str = x.to_string();
-            eprintln!("{err_str}");
-            if err_str.contains("code 404") {
-                return Err(ClientError::NotFound(format!("Image {image} not found")).err());
+    // Image list, grouped by same image
+    pub async fn image_collection_list(&self) -> Result<Vec<ImageCollection>> {
+        let docker = &self.client;
+        println!("Getting image list...");
+        let options = ListImagesOptionsBuilder::default().all(false).build();
+        let images = match docker.list_images(Some(options)).await {
+            Ok(images) => images,
+            Err(x) => {
+                let err_str = x.to_string();
+                eprintln!("{err_str}");
+                return Err(Error::Program(err_str));
             }
-            return Err(Error::Program(err_str));
+        };
+
+        let mut list = Vec::new();
+        for summary in images {
+            let Ok(image_collection) = ImageCollection::try_from(&summary) else {
+                println!("Error: skipping invalid image collection");
+                continue;
+            };
+            list.push(image_collection);
+        }
+        println!("{list:#?}");
+        Ok(list)
+    }
+
+    // Ungrouped, raw image repos:tags list
+    pub async fn image_list(&self) -> Result<Vec<Image>> {
+        let collections = self.image_collection_list().await?;
+        let mut images = Vec::new();
+        for collection in collections {
+            let id = collection.get_short_id();
+            let size = collection.size_bytes;
+            println!("Size collection {id}: {size:?}");
+            images.append(&mut collection.to_images());
+        }
+        println!("{images:#?}");
+        Ok(images)
+    }
+
+    pub async fn image_inspect(&self, image: String) -> Result<ImageInspect> {
+        let docker = &self.client;
+        println!("Inspecting image!");
+        // TODO bug: Docker returns wrong size here?. Correct one on image_list.
+        match docker.inspect_image(&image).await {
+            Ok(image) => Ok(image.clone()),
+            Err(x) => {
+                let err_str = x.to_string();
+                eprintln!("{err_str}");
+                if err_str.contains("code 404") {
+                    return Err(ClientError::NotFound(format!("Image {image} not found")).err());
+                }
+                return Err(Error::Program(err_str));
+            }
         }
     }
-}
 
-#[allow(unused)]
-async fn pull_image(docker: &Docker) {
-    let options = bollard::query_parameters::CreateImageOptionsBuilder::default()
-        .from_image("docker.io/busybox")
-        .build();
-
-    let mut a = docker.create_image(Some(options), None, None);
-    while let Some(state) = a.next().await {
-        println!("{state:?}");
+    pub async fn pull_image(
+        &self,
+        image: String,
+        reg_creds: (String, String),
+        tx: Arc<Mutex<std::sync::mpsc::SyncSender<bollard::config::CreateImageInfo>>>,
+    ) -> Result<()> {
+        let docker = &self.client;
+        println!("Getting image list...");
+        let options = bollard::query_parameters::CreateImageOptionsBuilder::default()
+            .from_image(&image)
+            .build();
+        println!("options: {options:#?}");
+        let credentials = bollard::auth::DockerCredentials {
+            username: Some(reg_creds.0.to_string()),
+            password: Some(reg_creds.1.to_string()),
+            ..Default::default()
+        };
+        println!("using {credentials:#?}");
+        let mut a = docker.create_image(Some(options), None, Some(credentials));
+        while let Some(state) = a.next().await {
+            //println!("{state:?}");
+            let tx = tx.lock().unwrap();
+            match state {
+                Ok(info) => {
+                    // TODO send timestamp?
+                    match tx.send(info) {
+                        Err(x) => {
+                            println!("e: {:#?}", x.0);
+                        }
+                        Ok(_x) => (),
+                    }
+                }
+                Err(x) => {
+                    println!("Pull error {x:?}");
+                    // TODO return err?
+                }
+            }
+        }
+        Ok(())
     }
-}
 
-#[allow(unused)]
-async fn push_image(docker: &Docker) {
-    todo!()
+    #[allow(unused)]
+    async fn push_image(&self, docker: &Docker) {
+        let docker = &self.client;
+        todo!()
+    }
 }
 
 #[cfg(test)]

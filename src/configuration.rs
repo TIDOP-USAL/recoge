@@ -29,6 +29,10 @@ impl AppConfig {
         self.user.is_empty() || self.password.is_empty()
     }
 
+    pub fn registry_credentials(&self) -> (String, String) {
+        (self.user.clone(), self.password.clone())
+    }
+
     // Using https://docs.rs/eframe/latest/eframe/fn.storage_dir.html
     /// Deserialize config from file. Inits the file if not found.
     pub fn get_config() -> Result<Self, ()> {
@@ -65,7 +69,7 @@ impl AppConfig {
                 AppConfig::default()
             }
         };
-        println!("{config:?}");
+        //println!("{config:?}");
         Ok(config)
     }
 

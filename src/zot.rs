@@ -45,6 +45,10 @@ impl Client {
         }
     }
 
+    pub fn get_credentials(&self) -> (String, String) {
+        (self.username.clone(), self.password.clone())
+    }
+
     pub fn new(config: &AppConfig) -> Result<Self> {
         if config.remote_url.is_empty() {
             println!("Can't create zot client without API URL"); // TODO public images support
