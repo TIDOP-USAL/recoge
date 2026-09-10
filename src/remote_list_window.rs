@@ -355,26 +355,28 @@ impl ModalData {
             let pull_progress_mutex = self.pull_progress.lock().unwrap();
             let pull_progress = pull_progress_mutex.clone();
             drop(pull_progress_mutex);
-            match pull_progress {
-                PullProgress::NotStarted => {
-                    ui.label("");
-                }
-                PullProgress::InProgress => {
-                    ui.horizontal(|ui| {
+	    ui.horizontal(|ui| {
+		match pull_progress {
+                    PullProgress::NotStarted => {
+			ui.label("Estado de la descarga:");
+                    }
+                    PullProgress::InProgress => {
+
                         ui.label("Descargando...");
-                        ui.spinner();
-                    });
-                }
-                PullProgress::Ok => {
-                    ui.label("Descarga correcta ✔");
-                }
-                PullProgress::Failed => {
-                    ui.label("Fallo al descargar");
-                }
-            }
+			ui.add(egui::widgets::Spinner::new().size(10.0));
+                        //ui.spinner();
+                    }
+                    PullProgress::Ok => {
+			ui.label("Descarga correcta ✔");
+                    }
+                    PullProgress::Failed => {
+			ui.label("Fallo al descargar");
+                    }
+		}
+	    });
             //if pull_progress != PullProgress::NotStarted {
-            ui.add_space(10.0);
-            ui.label("Estado:");
+            //ui.add_space(10.0);
+            //ui.label("Estado:");
             ui.add_space(10.0);
             // Add received messages to buffer
             for row in self.pull_progress_rx.try_iter() {
