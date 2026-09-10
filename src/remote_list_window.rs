@@ -21,7 +21,14 @@ pub struct WindowState {
 pub enum PullProgress {
     NotStarted,
     InProgress,
-    Ended, // TODO split into Done, Error,
+    Ok,
+    Failed,
+}
+
+impl PullProgress {
+    fn has_ended(&self) -> bool {
+        *self == Self::Ok || *self == Self::Failed
+    }
 }
 
 pub struct ModalData {
@@ -63,6 +70,7 @@ pub struct WindowOptions {
     anchored: bool,
     anchor: egui::Align2,
     anchor_offset: egui::Vec2,
+    pub data_is_loading: bool,
     pub app_config: AppConfig,
     pub remote_image_list: Vec<container::Image>,
     pub toasts_arc: Arc<Mutex<Toasts>>,
@@ -84,6 +92,7 @@ impl Default for WindowOptions {
             anchored: false,
             anchor: egui::Align2::RIGHT_TOP,
             anchor_offset: egui::Vec2::ZERO,
+            data_is_loading: false,
             app_config: AppConfig::default(),
             remote_image_list: Vec::new(),
             toasts_arc: Arc::new(Mutex::new(Toasts::default())),
@@ -150,6 +159,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         anchored: _,
         anchor: _,
         anchor_offset: _,
+        data_is_loading: _,
         app_config,
         remote_image_list,
         toasts_arc: _,
@@ -320,7 +330,7 @@ impl ModalData {
             };
             ui.set_width(400.0);
             ui.heading("Descargar imagen (Pull)");
-            ui.add_space(4.0);
+            ui.add_space(15.0);
 
             egui::Grid::new("modal_rows_grid_1")
                 .num_columns(2)
@@ -328,65 +338,53 @@ impl ModalData {
                 .striped(true)
                 .show(ui, |ui| {
                     ui.label("Imagen:");
-                    ui.label(pull_name);
+                    ui.code(pull_name);
                     ui.end_row();
 
                     let image_name = self.image.get_image_name();
-                    ui.label("Copia adicional").on_hover_text(format!(
+                    ui.label("Copia adicional:").on_hover_text(format!(
                         "La imagen se descargará también sin el dominio del Registro"
                     ));
-                    let mut layout = egui::text::LayoutJob::default();
-                    let style = egui::Style::default();
-                    egui::RichText::new("Copiar como  ")
-                        .color(style.visuals.text_color())
-                        .append_to(
-                            &mut layout,
-                            &style,
-                            egui::FontSelection::Default,
-                            egui::Align::Center,
-                        );
-                    egui::RichText::new(image_name)
-                        .color(style.visuals.strong_text_color())
-                        .background_color(style.visuals.code_bg_color)
-                        .code()
-                        .append_to(
-                            &mut layout,
-                            &style,
-                            egui::FontSelection::Default,
-                            egui::Align::Center,
-                        );
-                    ui.checkbox(&mut self.save_without_prefix, layout); // TODO
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut self.save_without_prefix, "Copiar como ");
+                        ui.code(image_name);
+                    });
                 });
             ui.add_space(10.0);
 
-            let pull_progress = self.pull_progress.lock().unwrap();
-            let pull_progress_copy = pull_progress.clone();
-            drop(pull_progress);
-            if pull_progress_copy == PullProgress::InProgress {
-                ui.horizontal(|ui| {
-                    ui.label("Descargando...");
-                    ui.spinner();
-                });
-            }
-            if pull_progress_copy == PullProgress::Ended {
-                ui.label("Finalizado"); // TODO split
-            }
-            if pull_progress_copy != PullProgress::NotStarted {
-                ui.add_space(10.0);
-                ui.label("Estado:");
-                ui.add_space(10.0);
-                // Add received messages to buffer
-                for row in self.pull_progress_rx.try_iter() {
-                    self.table_rows.push(row);
+            let pull_progress_mutex = self.pull_progress.lock().unwrap();
+            let pull_progress = pull_progress_mutex.clone();
+            drop(pull_progress_mutex);
+            match pull_progress {
+                PullProgress::NotStarted => {
+                    ui.label("");
                 }
-                // Print buffer as table
-                self.progress_table(ui);
-            } else {
-                ui.add_space(120.0);
+                PullProgress::InProgress => {
+                    ui.horizontal(|ui| {
+                        ui.label("Descargando...");
+                        ui.spinner();
+                    });
+                }
+                PullProgress::Ok => {
+                    ui.label("Descarga correcta ✔");
+                }
+                PullProgress::Failed => {
+                    ui.label("Fallo al descargar");
+                }
             }
-            if pull_progress_copy == PullProgress::Ended {
-                ui.add_space(14.0);
+            //if pull_progress != PullProgress::NotStarted {
+            ui.add_space(10.0);
+            ui.label("Estado:");
+            ui.add_space(10.0);
+            // Add received messages to buffer
+            for row in self.pull_progress_rx.try_iter() {
+                self.table_rows.push(row);
             }
+            // Print buffer as table
+            self.progress_table(ui);
+            /*} else {
+                ui.add_space(95.0);
+            }*/
 
             ui.add_space(10.0);
 
@@ -396,7 +394,7 @@ impl ModalData {
                 |ui| {
                     let download_btn = egui::Button::new("Descargar");
                     if ui
-                        .add_enabled(pull_progress_copy != PullProgress::Ended, download_btn)
+                        .add_enabled(!pull_progress.has_ended(), download_btn)
                         .clicked()
                     {
                         let mut tasks: Task<()> = Task::new();
@@ -418,12 +416,18 @@ impl ModalData {
                             let Ok(docker) = container::Client::new().await else {
                                 return println!("No docker client");
                             };
-                            match docker.pull_image(pull_name, creds, tx_arc).await {
-                                Ok(_) => println!("Pull OK"),
-                                Err(x) => println!("Pull failed: {x:?}"),
-                            }
-                            *progress_arc.lock().unwrap() = PullProgress::Ended;
-                            // TODO trigger main list refresh?
+                            *progress_arc.lock().unwrap() =
+                                match docker.pull_image(pull_name, creds, tx_arc).await {
+                                    Ok(_) => {
+                                        println!("Pull OK");
+                                        // TODO trigger main list refresh?
+                                        PullProgress::Ok
+                                    }
+                                    Err(x) => {
+                                        println!("Pull failed: {x:?}");
+                                        PullProgress::Failed
+                                    }
+                                }
                         });
                     }
 
@@ -444,14 +448,13 @@ impl ModalData {
         let row_height = 18.0;
         let table = TableBuilder::new(ui)
             .striped(true)
-            .resizable(true)
+            .resizable(false)
             .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
-            .column(Column::auto().resizable(false))
+            .column(Column::auto().at_least(100.0).resizable(false))
             .column(
                 Column::remainder()
-                    .at_least(10.0)
                     .clip(true)
-                    .resizable(true)
+                    .resizable(false)
                     .at_least(200.0),
             )
             .min_scrolled_height(available_height)
@@ -478,7 +481,7 @@ impl ModalData {
                                 && total != 0
                             {
                                 let progress = (current as f64 / total as f64) * 100.0;
-                                progress_str = format!("({progress}%)");
+                                progress_str = format!("({progress:.2}%)");
                             }
                         }
                         None => {}
@@ -491,6 +494,18 @@ impl ModalData {
                             ui.label(format!("{status} {progress_str}"));
                         });
                     });
+                }
+                if self.table_rows.len() < 3 {
+                    for _ in 0..(3 - self.table_rows.len()) {
+                        body.row(row_height, |mut row| {
+                            row.col(|ui| {
+                                ui.label("");
+                            });
+                            row.col(|ui| {
+                                ui.label("");
+                            });
+                        });
+                    }
                 }
             });
         table

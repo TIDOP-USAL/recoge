@@ -19,7 +19,7 @@ use container::Image;
 
 pub fn ui_start() -> eframe::Result {
     let mut options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([920.0, 440.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([900.0, 450.0]),
         ..Default::default()
     };
     options.viewport.fullscreen = Some(false);
@@ -302,16 +302,21 @@ impl MyApp {
 
         self.data.fire_async(async move {
             let Ok(mut client) = zot::Client::new(&config) else {
+                let window_state = &mut *remote_list_window_state_arc.lock().unwrap();
+                window_state.options.data_is_loading = false;
                 let mut toasts = toasts_arc.lock().unwrap();
                 toasts
                     .error("Error de conexión. Comprueba las credenciales del Registro.")
                     .duration(std::time::Duration::from_secs(3));
                 return;
             };
+
             println!("Cargando lista remota");
             let list = match client.get_image_list().await {
                 Ok(x) => x,
                 Err(x) => {
+                    let window_state = &mut *remote_list_window_state_arc.lock().unwrap();
+                    window_state.options.data_is_loading = false;
                     println!("error: {x:?}");
                     let mut toasts = toasts_arc.lock().unwrap();
                     toasts
@@ -329,6 +334,7 @@ impl MyApp {
             println!("is in local: {is_in_local:?}");
             // Set window parameters
             let window_state = &mut *remote_list_window_state_arc.lock().unwrap();
+            window_state.options.data_is_loading = false;
             window_state.options.remote_image_list = list;
             window_state.options.app_config = config.clone();
             // Open window
@@ -428,7 +434,9 @@ impl eframe::App for MyApp {
             &mut remote_list_window_state.open,
         );
         //println!("{}",image_info_window_state.open);
-        if image_info_window_state.options.data_is_loading {
+        if image_info_window_state.options.data_is_loading
+            || remote_list_window_state.options.data_is_loading
+        {
             ui.set_cursor_icon(egui::CursorIcon::Wait);
         }
 
@@ -463,6 +471,7 @@ impl eframe::App for MyApp {
                 .clicked()
             {
                 self.load_remote_list(global_data.config.clone());
+                remote_list_window_state.options.data_is_loading = true;
             }
             if top_toolbar_ui
                 .button("⚙")
@@ -605,8 +614,6 @@ impl MyApp {
                             println!("Info de {image_name}");
 
                             self.inspect_image(image.clone(), config.clone());
-
-                            //image_info_window_state.open = true;
                             image_info_window_state.options.data_is_loading = true;
                         }
                     }
