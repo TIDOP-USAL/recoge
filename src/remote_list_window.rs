@@ -25,6 +25,7 @@ pub enum PullProgress {
     Failed,
 }
 
+#[allow(unused)]
 impl PullProgress {
     fn has_ended(&self) -> bool {
         *self == Self::Ok || *self == Self::Failed
@@ -384,9 +385,10 @@ impl ModalData {
                 |ui| {
                     let download_btn = egui::Button::new("Descargar");
                     if ui
-                        .add_enabled(!pull_progress.has_ended(), download_btn)
+                        .add_enabled(pull_progress != PullProgress::Ok, download_btn)
                         .clicked()
                     {
+                        self.table_rows.clear();
                         let mut tasks: Task<()> = Task::new();
                         let Ok(zot_client) = zot::Client::new(&self.config) else {
                             ui.close_kind(egui::UiKind::Window);
