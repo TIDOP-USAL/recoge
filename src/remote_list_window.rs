@@ -96,7 +96,7 @@ impl Default for WindowOptions {
             app_config: AppConfig::default(),
             remote_image_list: Vec::new(),
             toasts_arc: Arc::new(Mutex::new(Toasts::default())),
-            date_rev: false,
+            date_rev: true,
             pull_modal_data: None,
         }
     }
@@ -217,7 +217,9 @@ fn table_ui(
                 ui.strong("Nombre/Tag");
             });
             header.col(|ui| {
-                ui.strong("Tamaño");
+                ui.strong("Tamaño*").on_hover_text(
+                    "Tamaño comprimido en Registro. El tamaño real puede ser 3-5 veces mayor",
+                );
             });
             header.col(|ui| {
                 ui.strong("ID local");
@@ -262,8 +264,6 @@ fn image_table_row(
     pull_modal_data: &mut Option<ModalData>,
 ) {
     let row_height = 18.0;
-    //row.set_selected(self.selection.contains(&row_index));
-    //row.set_overline(self.overline && row_index % 7 == 3);
     body.row(row_height, |mut row| {
         row.col(|ui| {
             let mut image_name = image.get_image_name();
@@ -296,7 +296,6 @@ fn image_table_row(
             ui.label(image.get_human_size());
         });
         row.col(|ui| {
-            //ui.add(egui::Separator::default().horizontal());
             ui.label(image.get_short_id())
                 .on_hover_text(image.id.clone());
         });
@@ -346,37 +345,30 @@ impl ModalData {
                         "La imagen se descargará también sin el dominio del Registro"
                     ));
                     ui.horizontal(|ui| {
-                        ui.checkbox(&mut self.save_without_prefix, "Copiar como ");
+                        ui.checkbox(&mut self.save_without_prefix, "Copiar como");
                         ui.code(image_name);
                     });
                 });
-            ui.add_space(10.0);
+            ui.add_space(20.0);
 
             let pull_progress_mutex = self.pull_progress.lock().unwrap();
             let pull_progress = pull_progress_mutex.clone();
             drop(pull_progress_mutex);
-	    ui.horizontal(|ui| {
-		match pull_progress {
-                    PullProgress::NotStarted => {
-			ui.label("Estado de la descarga:");
-                    }
-                    PullProgress::InProgress => {
-
-                        ui.label("Descargando...");
-			ui.add(egui::widgets::Spinner::new().size(10.0));
-                        //ui.spinner();
-                    }
-                    PullProgress::Ok => {
-			ui.label("Descarga correcta ✔");
-                    }
-                    PullProgress::Failed => {
-			ui.label("Fallo al descargar");
-                    }
-		}
-	    });
-            //if pull_progress != PullProgress::NotStarted {
-            //ui.add_space(10.0);
-            //ui.label("Estado:");
+            ui.horizontal(|ui| match pull_progress {
+                PullProgress::NotStarted => {
+                    ui.label("Estado de la descarga:");
+                }
+                PullProgress::InProgress => {
+                    ui.label("Descargando...");
+                    ui.add(egui::widgets::Spinner::new().size(10.0));
+                }
+                PullProgress::Ok => {
+                    ui.label("Descarga correcta ✔");
+                }
+                PullProgress::Failed => {
+                    ui.label("Fallo al descargar");
+                }
+            });
             ui.add_space(10.0);
             // Add received messages to buffer
             for row in self.pull_progress_rx.try_iter() {
@@ -384,10 +376,6 @@ impl ModalData {
             }
             // Print buffer as table
             self.progress_table(ui);
-            /*} else {
-                ui.add_space(95.0);
-            }*/
-
             ui.add_space(10.0);
 
             egui::Sides::new().show(
@@ -408,6 +396,10 @@ impl ModalData {
                         let registry_name = zot_client.get_registry_name();
                         let pull_name = format!("{registry_name}/{image_name}");
                         let creds = zot_client.get_credentials();
+                        let mut rename_str = None;
+                        if self.save_without_prefix {
+                            rename_str = Some(image_name);
+                        }
 
                         *self.pull_progress.lock().unwrap() = PullProgress::InProgress;
 
@@ -418,18 +410,21 @@ impl ModalData {
                             let Ok(docker) = container::Client::new().await else {
                                 return println!("No docker client");
                             };
-                            *progress_arc.lock().unwrap() =
-                                match docker.pull_image(pull_name, creds, tx_arc).await {
-                                    Ok(_) => {
-                                        println!("Pull OK");
-                                        // TODO trigger main list refresh?
-                                        PullProgress::Ok
-                                    }
-                                    Err(x) => {
-                                        println!("Pull failed: {x:?}");
-                                        PullProgress::Failed
-                                    }
+
+                            *progress_arc.lock().unwrap() = match docker
+                                .pull_image(pull_name, creds, tx_arc, rename_str)
+                                .await
+                            {
+                                Ok(_) => {
+                                    println!("Pull OK");
+                                    // TODO trigger main list refresh?
+                                    PullProgress::Ok
                                 }
+                                Err(x) => {
+                                    println!("Pull failed: {x:?}");
+                                    PullProgress::Failed
+                                }
+                            }
                         });
                     }
 

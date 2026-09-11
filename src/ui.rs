@@ -284,7 +284,7 @@ impl MyApp {
                     Some(RemoteImageStatus::Missing)
                 };
             }
-            // TODO try to check through digests?
+            // TODO check through digests. Required on Docker@Windows
 
             // Extra repos from zot
             remote_images_metadata.sort();
@@ -312,7 +312,7 @@ impl MyApp {
             };
 
             println!("Cargando lista remota");
-            let list = match client.get_image_list().await {
+            let mut list = match client.get_image_list().await {
                 Ok(x) => x,
                 Err(x) => {
                     let window_state = &mut *remote_list_window_state_arc.lock().unwrap();
@@ -325,6 +325,7 @@ impl MyApp {
                     return;
                 }
             };
+            list.sort_by_key(|x| x.date); // Oldest image first
             println!("{list:#?}");
             // TODO testing
             let last_image = list.last().unwrap().clone();

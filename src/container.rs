@@ -2,7 +2,7 @@
 //use std::collections::HashMap;
 use crate::error::{ClientError, Error, Result};
 use bollard::models::ImageInspect;
-use bollard::query_parameters::ListImagesOptionsBuilder;
+use bollard::query_parameters::{ListImagesOptionsBuilder, TagImageOptionsBuilder};
 use bollard::{Docker, plugin::ImageSummary};
 use chrono::{DateTime, Local, Utc};
 use futures_lite::stream::StreamExt;
@@ -436,11 +436,27 @@ impl Client {
         }
     }
 
+    pub async fn image_add_tag(&self, image: String, new_repo_tag: String) -> Result<()> {
+        let docker = &self.client;
+        let repo_info = RepositoryInfo::try_from_repo_tag(new_repo_tag)?;
+        let tag_options = TagImageOptionsBuilder::default()
+            .repo(&repo_info.repository)
+            .tag(&repo_info.tag)
+            .build();
+        if let Err(x) = docker.tag_image(&image, Some(tag_options)).await {
+            let err_str = x.to_string();
+            eprintln!("{err_str}");
+            return Err(Error::Program(err_str));
+        }
+        Ok(())
+    }
+
     pub async fn pull_image(
         &self,
         image: String,
         reg_creds: (String, String),
         tx: Arc<Mutex<std::sync::mpsc::SyncSender<bollard::config::CreateImageInfo>>>,
+        rename_name: Option<String>,
     ) -> Result<()> {
         let docker = &self.client;
         println!("Getting image list...");
@@ -473,6 +489,12 @@ impl Client {
                     // TODO return err?
                 }
             }
+        }
+        println!("Pull OK: {image}");
+        // Pull OK. Retag if required
+        if let Some(new_repo_tag) = rename_name {
+            self.image_add_tag(image, new_repo_tag).await?;
+            println!("Rename OK");
         }
         Ok(())
     }
