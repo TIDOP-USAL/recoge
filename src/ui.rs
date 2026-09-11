@@ -160,6 +160,7 @@ impl MyApp {
             };
             let mut image_in_remote_option = None;
             let mut remote_image_date_option = None;
+            let mut remote_images_digests = Vec::new();
             let mut remote_images_metadata = Vec::new();
             // Image info
             if inspect_result.is_ok()
@@ -169,8 +170,12 @@ impl MyApp {
                 println!("zot returned: {remote_info:#?}");
                 // TODO refactor
                 image_in_remote_option = Some(remote_info.is_in_remote);
-                if remote_info.is_in_remote {
-                    remote_image_date_option = Some(remote_info.image_info.unwrap().date);
+                if remote_info.is_in_remote
+                    && let Some(image_info) = remote_info.image_info
+                {
+                    remote_image_date_option = Some(image_info.date);
+                    let mut digests = image_info.digests.clone();
+                    remote_images_digests.append(&mut digests);
                 }
             }
 
@@ -221,8 +226,28 @@ impl MyApp {
                             remote_image.get_image_name()
                         );
                         let offset = local_date - remote_date;
-                        if offset.abs().num_seconds() < 2 {
-                            println!("Dates match, OK!");
+                        let date_ok = offset.abs().num_seconds() < 2;
+                        // Digest check
+                        let mut digest_found = false;
+                        if let Some(remote_digest) = remote_image.digests.first() {
+                            for local_digest in &local_images.image_digests {
+                                // local_digest: repo@sha256:digest
+                                // remote_digests: sha256:digest
+                                let digest_parts = local_digest.split('@').collect::<Vec<_>>();
+                                let Some(local_digest) = digest_parts.last() else {
+                                    continue;
+                                };
+                                println!("Checking: {local_digest}");
+                                if remote_digest.contains(local_digest) {
+                                    println!("Digest match!");
+                                    digest_found = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if date_ok || digest_found {
+                            println!("Images match, OK!");
                             if let Some(digest) = remote_image.digests.first() {
                                 remote_digests.push(digest.clone());
                             }
@@ -257,9 +282,10 @@ impl MyApp {
             // Set window parameters. TODO send image itself?
             image_info_window_state.options.image_inspect = Some(image_inspect.clone());
             image_info_window_state.options.selected_image_name = Some(image.get_image_name());
-            image_info_window_state.options.image_collection = Some(local_images);
+            image_info_window_state.options.image_collection = Some(local_images.clone());
 
             image_info_window_state.options.image_in_local = Some(true);
+            // TODO refactor RemoteImageStatus usage
             // Safety. Check both dates
             // If zot info
             if let Some(in_remote) = image_in_remote_option {
@@ -284,7 +310,24 @@ impl MyApp {
                     Some(RemoteImageStatus::Missing)
                 };
             }
-            // TODO check through digests. Required on Docker@Windows
+            // Check through digests. Required on Docker@Windows
+            // TODO refactor and remove
+            println!("Remote digests: {:#?}", remote_images_digests);
+            for local_digest in local_images.image_digests {
+                // local_digest: repo@sha256:digest
+                // remote_digests: sha256:digest
+                let digest_parts = local_digest.split('@').collect::<Vec<_>>();
+                let Some(local_digest) = digest_parts.last() else {
+                    continue;
+                };
+                println!("Checking: {local_digest}");
+                if remote_images_digests.contains(&local_digest.to_string()) {
+                    println!("Digest match!");
+                    image_info_window_state.options.image_in_remote =
+                        Some(RemoteImageStatus::Present);
+                    break;
+                }
+            }
 
             // Extra repos from zot
             remote_images_metadata.sort();
@@ -588,8 +631,6 @@ impl MyApp {
         image_info_window_state: &mut image_info_window::WindowState,
     ) {
         let row_height = 18.0;
-        //row.set_selected(self.selection.contains(&row_index));
-        //row.set_overline(self.overline && row_index % 7 == 3);
         body.row(row_height, |mut row| {
             row.col(|ui| {
                 let mut image_name = image.get_image_name();
