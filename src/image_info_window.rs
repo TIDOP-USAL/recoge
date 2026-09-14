@@ -1,7 +1,12 @@
+use crate::container;
 use crate::container::ImageCollection;
+use crate::tasks::Task;
 use crate::zot::ImageDisplayMetadata;
+use bollard::config::ImageDeleteResponseItem;
 use eframe::egui;
-use egui::Vec2b;
+use egui::{Id, Modal, Vec2b};
+use egui_extras::{Column, TableBuilder};
+use std::sync::{Arc, Mutex};
 
 pub struct WindowState {
     pub options: WindowOptions,
@@ -26,7 +31,7 @@ pub enum RemoteImageStatus {
     //DigestMismatch,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub struct WindowOptions {
     title: String,
     title_bar: bool,
@@ -46,6 +51,7 @@ pub struct WindowOptions {
     pub remote_images_metadata: Vec<ImageDisplayMetadata>,
     pub image_collection: Option<ImageCollection>,
     pub image_inspect: Option<bollard::models::ImageInspect>,
+    delete_modal_data: Option<ModalData>,
 }
 
 // TODO educe default
@@ -70,6 +76,7 @@ impl Default for WindowOptions {
             remote_images_metadata: Vec::new(),
             image_collection: None,
             image_inspect: None,
+            delete_modal_data: None,
         }
     }
 }
@@ -94,6 +101,7 @@ pub fn show(mut options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool)
         remote_images_metadata: _,
         image_collection: _,
         image_inspect: _,
+        delete_modal_data: _,
     } = options.clone();
 
     let enabled = !data_is_loading;
@@ -145,6 +153,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         remote_images_metadata,
         image_collection,
         image_inspect,
+        delete_modal_data,
     } = options;
 
     let Some(selected_image_name) = selected_image_name else {
@@ -306,47 +315,248 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
 
     ui.separator();
 
-    egui::Grid::new("image_rows_grid_3")
-        .num_columns(2)
-        .spacing([20.0, 10.0])
-        .striped(false)
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Acciones locales: ");
-                if ui
-                    .button("🗑")
-                    .on_hover_text(format!("Eliminar la imagen {selected_image_name}"))
-                    .clicked()
-                {
-                    println!("Eliminar {}", image_collection.get_id_value());
-                }
-                /*if ui
-                    .button("⬆")
-                    .on_hover_text(format!("Subir a registro {selected_image_name}"))
-                    .clicked()
-                {
-                    println!("Eliminar {}", image_collection.get_id_value());
-                }*/
-            });
-            ui.end_row();
-        });
-
-    //let on_top = Some(ui.layer_id()) == ui.ctx().top_layer_id();
-    //ui.label(format!("This window is on top: {on_top}."));
-
-    /*ui.separator();
-    ui.horizontal(|ui| {
-    egui::reset_button(ui, self, "Reset");
-    if ui
-    .button("Close")
-    .on_hover_text("You can collapse / close Windows via Ui::close")
-    .clicked()
+    if let Some(is_local) = image_in_local
+        && *is_local
     {
-    // Calling close would close the collapsible within the window
-    // ui.close();
-    // Instead, we close the window itself
-    ui.close_kind(UiKind::Window);
+        egui::Grid::new("image_rows_grid_3")
+            .num_columns(2)
+            .spacing([20.0, 10.0])
+            .striped(false)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Acciones locales: ");
+                    if ui
+                        .button("🗑")
+                        .on_hover_text(format!("Eliminar la imagen {selected_image_name}"))
+                        .clicked()
+                    {
+                        println!("delete_modal for: {selected_image_name}");
+                        // TODO use image_collection, add selector to modal
+                        *delete_modal_data = Some(ModalData::new(selected_image_name.clone()));
+                    }
+                    /*if ui
+                        .button("⬆")
+                        .on_hover_text(format!("Subir a registro {selected_image_name}"))
+                        .clicked()
+                        {
+                        println!("Eliminar {}", image_collection.get_id_value());
+                    }*/
+                });
+                ui.end_row();
+            });
     }
-    });
-     */
+
+    if let Some(data) = delete_modal_data {
+        let modal = data.modal(ui);
+        if modal.should_close() {
+            let delete_progress = data.delete_progress.lock().unwrap().clone();
+            *delete_modal_data = None;
+            if delete_progress == DeleteProgress::Ok {
+                ui.close_kind(egui::UiKind::Window);
+            }
+        }
+    }
+}
+
+#[derive(PartialEq, Clone)]
+enum DeleteProgress {
+    NotStarted,
+    InProgress,
+    Ok,
+    Failed,
+}
+
+#[derive(Clone)]
+pub struct ModalData {
+    pub image_name: String,
+    force_deletion: bool,
+    table_rows: Arc<Mutex<Vec<ImageDeleteResponseItem>>>,
+    delete_progress: Arc<Mutex<DeleteProgress>>,
+}
+
+impl ModalData {
+    pub fn new(image: String) -> Self {
+        Self {
+            image_name: image.clone(),
+            force_deletion: false,
+            table_rows: Arc::new(Mutex::new(Vec::new())),
+            delete_progress: Arc::new(Mutex::new(DeleteProgress::NotStarted)),
+        }
+    }
+
+    fn modal(&mut self, ui: &mut egui::Ui) -> egui::ModalResponse<()> {
+        Modal::new(Id::new("Local delete modal")).show(ui.ctx(), |ui| {
+            ui.set_width(400.0);
+            ui.heading("Eliminar imagen local");
+            ui.add_space(15.0);
+
+            egui::Grid::new("modal_rows_grid_1")
+                .num_columns(2)
+                .spacing([20.0, 10.0])
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.label("Imagen:");
+                    ui.code(&self.image_name);
+                    ui.end_row();
+
+                    ui.label("Forzar:")
+                        .on_hover_text(format!("La imagen se borrará aunque esté en uso"));
+                    ui.checkbox(&mut self.force_deletion, "")
+                        .on_hover_text("Eliminar aunque esté en uso");
+                });
+            ui.add_space(20.0);
+
+            let delete_progress_mutex = self.delete_progress.lock().unwrap();
+            let delete_progress = delete_progress_mutex.clone();
+            drop(delete_progress_mutex);
+            ui.horizontal(|ui| match delete_progress {
+                DeleteProgress::NotStarted => {
+                    ui.label("Resultados de eliminación:");
+                }
+                DeleteProgress::InProgress => {
+                    ui.label("Eliminando...");
+                    ui.add(egui::widgets::Spinner::new().size(10.0));
+                }
+                DeleteProgress::Ok => {
+                    ui.label("Terminado ✔");
+                }
+                DeleteProgress::Failed => {
+                    ui.label("Fallo al eliminar");
+                }
+            });
+            ui.add_space(10.0);
+            // Print result table
+            self.delete_table(ui);
+            ui.add_space(10.0);
+
+            egui::Sides::new().show(
+                ui,
+                |_ui| {},
+                |ui| {
+                    let download_btn = egui::Button::new("Eliminar");
+                    if ui
+                        .add_enabled(delete_progress != DeleteProgress::Ok, download_btn)
+                        .clicked()
+                    {
+                        let mut tasks: Task<()> = Task::new();
+
+                        let image_name = self.image_name.clone();
+                        let force = self.force_deletion;
+                        *self.delete_progress.lock().unwrap() = DeleteProgress::InProgress;
+
+                        let progress_arc = Arc::clone(&self.delete_progress);
+                        let table_arc = Arc::clone(&self.table_rows);
+                        tasks.fire_async(async move {
+                            let Ok(docker) = container::Client::new().await else {
+                                return println!("No docker client");
+                            };
+
+                            *progress_arc.lock().unwrap() =
+                                match docker.delete_image(image_name, force, false).await {
+                                    Ok(mut x) => {
+                                        println!("Delete OK");
+                                        let mut table_rows = table_arc.lock().unwrap();
+                                        table_rows.append(&mut x);
+                                        DeleteProgress::Ok
+                                    }
+                                    Err(x) => {
+                                        println!("Delete failed: {x:?}");
+                                        DeleteProgress::Failed
+                                    }
+                                }
+                        });
+                    }
+
+                    if ui.button("Cerrar").clicked() {
+                        ui.close();
+                    }
+                },
+            );
+        })
+    }
+
+    fn delete_table(&self, ui: &mut egui::Ui) {
+        let available_height = 50.0;
+        let row_height = 18.0;
+        let _tags_table = TableBuilder::new(ui)
+            .id_salt("tags".to_string())
+            .striped(true)
+            .resizable(false)
+            .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
+            .column(
+                Column::remainder()
+                    .clip(true)
+                    .resizable(false)
+                    .at_least(200.0),
+            )
+            .min_scrolled_height(available_height)
+            .max_scroll_height(available_height)
+            .header(20.0, |mut header| {
+                header.col(|ui| {
+                    ui.strong("Tags eliminados");
+                });
+            })
+            .body(|mut body| {
+                let table_rows = self.table_rows.lock().unwrap();
+                for msg in table_rows.iter().rev() {
+                    let Some(tag) = &msg.untagged else {
+                        continue;
+                    };
+                    body.row(row_height, |mut row| {
+                        row.col(|ui| {
+                            ui.label(tag);
+                        });
+                    });
+                }
+                if table_rows.len() < 3 {
+                    for _ in 0..(3 - table_rows.len()) {
+                        body.row(row_height, |mut row| {
+                            row.col(|ui| {
+                                ui.label("");
+                            });
+                        });
+                    }
+                }
+            });
+
+        let _images_table = TableBuilder::new(ui)
+            .striped(true)
+            .resizable(false)
+            .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
+            .column(
+                Column::remainder()
+                    .clip(true)
+                    .resizable(false)
+                    .at_least(200.0),
+            )
+            .min_scrolled_height(available_height)
+            .max_scroll_height(available_height)
+            .header(20.0, |mut header| {
+                header.col(|ui| {
+                    ui.strong("Imágenes eliminadas");
+                });
+            })
+            .body(|mut body| {
+                let table_rows = self.table_rows.lock().unwrap();
+                for msg in table_rows.iter().rev() {
+                    let Some(deleted) = &msg.deleted else {
+                        continue;
+                    };
+                    body.row(row_height, |mut row| {
+                        row.col(|ui| {
+                            ui.label(deleted);
+                        });
+                    });
+                }
+                if table_rows.len() < 3 {
+                    for _ in 0..(3 - table_rows.len()) {
+                        body.row(row_height, |mut row| {
+                            row.col(|ui| {
+                                ui.label("");
+                            });
+                        });
+                    }
+                }
+            });
+    }
 }

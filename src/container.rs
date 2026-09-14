@@ -459,7 +459,7 @@ impl Client {
         rename_name: Option<String>,
     ) -> Result<()> {
         let docker = &self.client;
-        println!("Getting image list...");
+        println!("Pulling image...");
         let options = bollard::query_parameters::CreateImageOptionsBuilder::default()
             .from_image(&image)
             .build();
@@ -503,6 +503,32 @@ impl Client {
     async fn push_image(&self, docker: &Docker) {
         let docker = &self.client;
         todo!()
+    }
+
+    pub async fn delete_image(
+        &self,
+        image: String,
+        force: bool,
+        noprune: bool, // Do not delete untagged parent images
+    ) -> Result<Vec<bollard::config::ImageDeleteResponseItem>> {
+        let docker = &self.client;
+        println!("Deleting image");
+        let options = bollard::query_parameters::RemoveImageOptions {
+            force,
+            noprune,
+            ..Default::default()
+        };
+        println!("options: {options:#?}");
+        let result = match docker.remove_image(&image, Some(options), None).await {
+            Ok(x) => x,
+            Err(x) => {
+                // TODO error parsing
+                println!("Error while deleting {image}: {x:?}");
+                return Err(Error::Program(format!("{x:?}")));
+            }
+        };
+        println!("Delete OK: {result:?}");
+        Ok(result)
     }
 }
 
