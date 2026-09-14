@@ -106,9 +106,8 @@ impl MyApp {
         let toasts_arc = Arc::clone(&self.toasts);
 
         self.data.fire_async(async move {
-            //tokio::task::spawn_local(async move {
-            *image_list_loaded_arc.lock().unwrap() = LoadState::NotLoaded;
             let Ok(docker) = container::Client::new().await else {
+                *image_list_loaded_arc.lock().unwrap() = LoadState::NotLoaded;
                 toasts_arc
                     .lock()
                     .unwrap()
@@ -117,6 +116,7 @@ impl MyApp {
                 return;
             };
             let Ok(mut images) = docker.image_list().await else {
+                *image_list_loaded_arc.lock().unwrap() = LoadState::NotLoaded;
                 let mut toasts = toasts_arc.lock().unwrap();
                 toasts
                     .error("No se puede obtener la lista de imágenes.")
@@ -507,6 +507,7 @@ impl eframe::App for MyApp {
                 .on_hover_text("Recargar lista de imágenes")
                 .clicked()
             {
+                *self.image_list_loaded.lock().unwrap() = LoadState::Loading;
                 self.update_list();
             }
             if top_toolbar_ui
