@@ -8,8 +8,7 @@ use eframe::egui;
 use egui::{Id, Modal, Vec2b};
 use egui_extras::{Column, TableBuilder};
 use egui_notify::Toasts;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
 pub struct WindowState {
@@ -29,6 +28,9 @@ pub enum PullProgress {
 impl PullProgress {
     fn has_ended(&self) -> bool {
         *self == Self::Ok || *self == Self::Failed
+    }
+    fn can_start(&self) -> bool {
+        *self != Self::Ok && *self != Self::InProgress
     }
 }
 
@@ -385,7 +387,7 @@ impl ModalData {
                 |ui| {
                     let download_btn = egui::Button::new("Descargar");
                     if ui
-                        .add_enabled(pull_progress != PullProgress::Ok, download_btn)
+                        .add_enabled(pull_progress.can_start(), download_btn)
                         .clicked()
                     {
                         self.table_rows.clear();
@@ -431,10 +433,6 @@ impl ModalData {
                     }
 
                     if ui.button("Cerrar").clicked() {
-                        let v = self
-                            .pull_progress_rx
-                            .recv_timeout(std::time::Duration::from_millis(1));
-                        println!("{v:?}");
                         ui.close();
                     }
                 },

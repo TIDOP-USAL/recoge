@@ -366,6 +366,12 @@ enum DeleteProgress {
     Failed,
 }
 
+impl DeleteProgress {
+    fn can_start(&self) -> bool {
+        *self != Self::Ok && *self != Self::InProgress
+    }
+}
+
 #[derive(Clone)]
 pub struct ModalData {
     pub image_name: String,
@@ -435,7 +441,7 @@ impl ModalData {
                 |ui| {
                     let download_btn = egui::Button::new("Eliminar");
                     if ui
-                        .add_enabled(delete_progress != DeleteProgress::Ok, download_btn)
+                        .add_enabled(delete_progress.can_start(), download_btn)
                         .clicked()
                     {
                         let mut tasks: Task<()> = Task::new();
