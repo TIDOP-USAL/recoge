@@ -63,8 +63,9 @@ pub struct MyApp {
     global_data: Arc<Mutex<GlobalData>>,
     toasts: Arc<Mutex<Toasts>>,
     image_list: Arc<Mutex<Vec<Image>>>,
-    image_list_loaded: Arc<Mutex<LoadState>>,
-    data: Task<()>,
+    image_list_load_state: Arc<Mutex<LoadState>>,
+    image_list_should_reload: Arc<Mutex<bool>>,
+    tasks: Task<()>,
     upload_window_state: Arc<Mutex<upload_window::WindowState>>,
     image_info_window_state: Arc<Mutex<image_info_window::WindowState>>,
     remote_list_window_state: Arc<Mutex<remote_list_window::WindowState>>,
@@ -77,7 +78,7 @@ impl MyApp {
         let global_data_arc = Arc::clone(&self.global_data);
         let toasts_arc = Arc::clone(&self.toasts);
 
-        self.data.fire_async(async move {
+        self.tasks.fire_async(async move {
             let Ok(config) = AppConfig::get_config() else {
                 //global_data.config_state = LoadState::NotLoaded;
                 // This would trigger this fn again
@@ -102,12 +103,12 @@ impl MyApp {
     }
     pub fn update_list(&mut self) {
         let image_list_arc = Arc::clone(&self.image_list);
-        let image_list_loaded_arc = Arc::clone(&self.image_list_loaded);
+        let image_list_load_state_arc = Arc::clone(&self.image_list_load_state);
         let toasts_arc = Arc::clone(&self.toasts);
 
-        self.data.fire_async(async move {
+        self.tasks.fire_async(async move {
             let Ok(docker) = container::Client::new().await else {
-                *image_list_loaded_arc.lock().unwrap() = LoadState::NotLoaded;
+                *image_list_load_state_arc.lock().unwrap() = LoadState::NotLoaded;
                 toasts_arc
                     .lock()
                     .unwrap()
@@ -116,7 +117,7 @@ impl MyApp {
                 return;
             };
             let Ok(mut images) = docker.image_list().await else {
-                *image_list_loaded_arc.lock().unwrap() = LoadState::NotLoaded;
+                *image_list_load_state_arc.lock().unwrap() = LoadState::NotLoaded;
                 let mut toasts = toasts_arc.lock().unwrap();
                 toasts
                     .error("No se puede obtener la lista de imágenes.")
@@ -128,16 +129,17 @@ impl MyApp {
             // TODO collection groups
             image_list.append(&mut images);
             image_list.sort_by_key(|x| x.date); // Oldest image first
-            *image_list_loaded_arc.lock().unwrap() = LoadState::Loaded;
+            *image_list_load_state_arc.lock().unwrap() = LoadState::Loaded;
         });
     }
 
     // image: image name or digest
     pub fn inspect_image(&mut self, image: Image, config: AppConfig) {
         let image_info_window_state_arc = Arc::clone(&self.image_info_window_state);
+        let main_list_reload_flag_arc = Arc::clone(&self.image_list_should_reload);
         let toasts_arc = Arc::clone(&self.toasts);
 
-        self.data.fire_async(async move {
+        self.tasks.fire_async(async move {
             println!("Inspecting: {}", image.get_image_name());
             let Ok(docker) = container::Client::new().await else {
                 toasts_arc
@@ -272,6 +274,7 @@ impl MyApp {
             }
 
             let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
+            image_info_window_state.options.main_list_reload_flag = Some(main_list_reload_flag_arc);
             image_info_window_state.options.data_is_loading = false;
 
             // BUGFIX, wrong size on inspect, use parent size
@@ -343,7 +346,7 @@ impl MyApp {
         let remote_list_window_state_arc = Arc::clone(&self.remote_list_window_state);
         let toasts_arc = Arc::clone(&self.toasts);
 
-        self.data.fire_async(async move {
+        self.tasks.fire_async(async move {
             let Ok(mut client) = zot::Client::new(&config) else {
                 let window_state = &mut *remote_list_window_state_arc.lock().unwrap();
                 window_state.options.data_is_loading = false;
@@ -419,8 +422,9 @@ impl Default for MyApp {
                 Toasts::default().with_anchor(egui_notify::Anchor::BottomRight),
             )),
             image_list: Arc::new(Mutex::new(image_list)),
-            image_list_loaded: Arc::new(Mutex::new(LoadState::NotLoaded)),
-            data: Task::new(),
+            image_list_load_state: Arc::new(Mutex::new(LoadState::NotLoaded)),
+            image_list_should_reload: Arc::new(Mutex::new(false)),
+            tasks: Task::new(),
             upload_window_state: Arc::new(Mutex::new(upload_window::WindowState::default())),
             config_window_state: Arc::new(Mutex::new(config_window::WindowState::default())),
             remote_list_window_state: Arc::new(Mutex::new(
@@ -507,7 +511,7 @@ impl eframe::App for MyApp {
                 .on_hover_text("Recargar lista de imágenes")
                 .clicked()
             {
-                *self.image_list_loaded.lock().unwrap() = LoadState::Loading;
+                *self.image_list_load_state.lock().unwrap() = LoadState::Loading;
                 self.update_list();
             }
             if top_toolbar_ui
@@ -530,7 +534,7 @@ impl eframe::App for MyApp {
 
             ui.separator();
 
-            ui.horizontal(|ui| match *self.image_list_loaded.lock().unwrap() {
+            ui.horizontal(|ui| match *self.image_list_load_state.lock().unwrap() {
                 LoadState::Loaded => {
                     ui.label("Lista cargada");
                 }
@@ -542,6 +546,15 @@ impl eframe::App for MyApp {
                     ui.label("Lista no cargada");
                 }
             });
+            let image_list_should_reload = self.image_list_should_reload.lock().unwrap().clone();
+            if image_list_should_reload {
+                println!("Some window flagged the main list to be updated");
+                let mut image_list_should_reload = self.image_list_should_reload.lock().unwrap();
+                *image_list_should_reload = false;
+                drop(image_list_should_reload);
+                *self.image_list_load_state.lock().unwrap() = LoadState::Loading;
+                self.update_list();
+            }
 
             ui.label("Imágenes locales:".to_string());
             ui.add_space(10.0);

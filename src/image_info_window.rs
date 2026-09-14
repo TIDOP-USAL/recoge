@@ -45,6 +45,7 @@ pub struct WindowOptions {
     anchor: egui::Align2,
     anchor_offset: egui::Vec2,
     pub data_is_loading: bool,
+    pub main_list_reload_flag: Option<Arc<Mutex<bool>>>,
     pub selected_image_name: Option<String>,
     pub image_in_local: Option<bool>,
     pub image_in_remote: Option<RemoteImageStatus>,
@@ -70,6 +71,7 @@ impl Default for WindowOptions {
             anchor: egui::Align2::RIGHT_TOP,
             anchor_offset: egui::Vec2::ZERO,
             data_is_loading: false,
+            main_list_reload_flag: None,
             selected_image_name: None,
             image_in_local: None,
             image_in_remote: None,
@@ -95,6 +97,7 @@ pub fn show(mut options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool)
         anchor,
         anchor_offset,
         data_is_loading,
+        main_list_reload_flag: _,
         selected_image_name: _,
         image_in_local: _,
         image_in_remote: _,
@@ -147,6 +150,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         anchor: _,
         anchor_offset: _,
         data_is_loading: _,
+        main_list_reload_flag,
         selected_image_name,
         image_in_local,
         image_in_remote,
@@ -155,6 +159,12 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         image_inspect,
         delete_modal_data,
     } = options;
+
+    let Some(main_list_reload_flag) = main_list_reload_flag else {
+        eprintln!("Window opened without main_list_reload_flag");
+        ui.close_kind(egui::UiKind::Window);
+        return;
+    };
 
     let Some(selected_image_name) = selected_image_name else {
         eprintln!("Window opened without selected_image_name");
@@ -352,6 +362,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
             let delete_progress = data.delete_progress.lock().unwrap().clone();
             *delete_modal_data = None;
             if delete_progress == DeleteProgress::Ok {
+                *main_list_reload_flag.lock().unwrap() = true;
                 ui.close_kind(egui::UiKind::Window);
             }
         }
