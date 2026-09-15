@@ -344,6 +344,7 @@ impl MyApp {
 
     pub fn load_remote_list(&mut self, config: AppConfig) {
         let remote_list_window_state_arc = Arc::clone(&self.remote_list_window_state);
+	let main_list_reload_flag_arc = Arc::clone(&self.image_list_should_reload);
         let toasts_arc = Arc::clone(&self.toasts);
 
         self.tasks.fire_async(async move {
@@ -381,6 +382,7 @@ impl MyApp {
             println!("is in local: {is_in_local:?}");
             // Set window parameters
             let window_state = &mut *remote_list_window_state_arc.lock().unwrap();
+	    window_state.options.main_list_reload_flag = Some(main_list_reload_flag_arc);
             window_state.options.data_is_loading = false;
             window_state.options.remote_image_list = list;
             window_state.options.app_config = config.clone();

@@ -74,6 +74,7 @@ pub struct WindowOptions {
     anchor: egui::Align2,
     anchor_offset: egui::Vec2,
     pub data_is_loading: bool,
+    pub main_list_reload_flag: Option<Arc<Mutex<bool>>>,
     pub app_config: AppConfig,
     pub remote_image_list: Vec<container::Image>,
     pub toasts_arc: Arc<Mutex<Toasts>>,
@@ -96,6 +97,7 @@ impl Default for WindowOptions {
             anchor: egui::Align2::RIGHT_TOP,
             anchor_offset: egui::Vec2::ZERO,
             data_is_loading: false,
+	    main_list_reload_flag: None,
             app_config: AppConfig::default(),
             remote_image_list: Vec::new(),
             toasts_arc: Arc::new(Mutex::new(Toasts::default())),
@@ -163,6 +165,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         anchor: _,
         anchor_offset: _,
         data_is_loading: _,
+	main_list_reload_flag,
         app_config,
         remote_image_list,
         toasts_arc: _,
@@ -170,6 +173,12 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         pull_modal_data,
     } = options;
 
+    let Some(main_list_reload_flag) = main_list_reload_flag else {
+        eprintln!("Window opened without main_list_reload_flag");
+        ui.close_kind(egui::UiKind::Window);
+        return;
+    };
+    
     ui.label("Imágenes remotas:");
     ui.add_space(10.0);
     table_ui(
@@ -180,13 +189,19 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         pull_modal_data,
     );
 
+    // Pull modal
     if let Some(data) = pull_modal_data {
         let modal = data.modal(ui);
         if modal.should_close() {
+            let pull_progress = data.pull_progress.lock().unwrap().clone();
             *pull_modal_data = None;
+            if pull_progress == PullProgress::Ok {
+                *main_list_reload_flag.lock().unwrap() = true;
+                //ui.close_kind(egui::UiKind::Window);
+            }
         }
     }
-
+    
     //let on_top = Some(ui.layer_id()) == ui.ctx().top_layer_id();
     //ui.label(format!("This window is on top: {on_top}."));
 }
