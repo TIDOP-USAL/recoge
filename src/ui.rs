@@ -660,8 +660,13 @@ impl MyApp {
                     if ui.button("⬆").on_hover_text("Subir a Registro").clicked() {
                         //*boolean = !*boolean;
                         println!("Subir {image_name}");
-                        upload_window_state.options.image_name = Some(image_name.to_string());
-                        upload_window_state.open = true;
+                        let Ok(selected_repo_info) =
+                            container::RepositoryInfo::try_from_repo_tag(image_name.clone())
+                        else {
+                            eprintln!("Invalid repo_tag");
+                            return;
+                        };
+                        upload_window_state.open(config.clone(), selected_repo_info);
                     }
                     if ui
                         .button("ℹ")
