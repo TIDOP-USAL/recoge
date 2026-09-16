@@ -420,7 +420,7 @@ impl ModalData {
                         .on_hover_text(format!("La imagen se borrará aunque esté en uso"));
                     ui.checkbox(&mut self.force_deletion, "")
                         .on_hover_text("Eliminar aunque esté en uso");
-		    ui.end_row();
+                    ui.end_row();
                 });
             ui.add_space(20.0);
 

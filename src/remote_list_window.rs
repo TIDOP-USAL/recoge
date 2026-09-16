@@ -97,7 +97,7 @@ impl Default for WindowOptions {
             anchor: egui::Align2::RIGHT_TOP,
             anchor_offset: egui::Vec2::ZERO,
             data_is_loading: false,
-	    main_list_reload_flag: None,
+            main_list_reload_flag: None,
             app_config: AppConfig::default(),
             remote_image_list: Vec::new(),
             toasts_arc: Arc::new(Mutex::new(Toasts::default())),
@@ -165,7 +165,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         anchor: _,
         anchor_offset: _,
         data_is_loading: _,
-	main_list_reload_flag,
+        main_list_reload_flag,
         app_config,
         remote_image_list,
         toasts_arc: _,
@@ -178,16 +178,19 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         ui.close_kind(egui::UiKind::Window);
         return;
     };
-    
+
     ui.label("Imágenes remotas:");
     ui.add_space(10.0);
-    table_ui(
-        ui,
-        date_rev,
-        remote_image_list.to_vec(),
-        &app_config,
-        pull_modal_data,
-    );
+
+    ui.group(|ui| {
+        table_ui(
+            ui,
+            date_rev,
+            remote_image_list.to_vec(),
+            &app_config,
+            pull_modal_data,
+        );
+    });
 
     // Pull modal
     if let Some(data) = pull_modal_data {
@@ -201,7 +204,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
             }
         }
     }
-    
+
     //let on_top = Some(ui.layer_id()) == ui.ctx().top_layer_id();
     //ui.label(format!("This window is on top: {on_top}."));
 }
@@ -393,7 +396,9 @@ impl ModalData {
                 self.table_rows.push(row);
             }
             // Print buffer as table
-            self.progress_table(ui);
+            ui.group(|ui| {
+                self.progress_table(ui);
+            });
             ui.add_space(10.0);
 
             egui::Sides::new().show(
