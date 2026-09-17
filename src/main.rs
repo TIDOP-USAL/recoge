@@ -10,6 +10,7 @@ pub mod remote_list_window;
 pub mod tasks;
 pub mod ui;
 pub mod upload_window;
+pub mod window;
 pub mod zot;
 
 fn main() {

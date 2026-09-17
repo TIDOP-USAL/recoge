@@ -1,35 +1,50 @@
 use crate::configuration::AppConfig;
 use crate::container;
 use crate::tasks::Task;
+use crate::window::WindowOptions;
 use crate::zot;
 use bollard::config::PushImageInfo;
 use eframe::egui;
-use egui::Vec2b;
+use egui::Id;
 use egui::widgets::TextEdit;
 use egui_extras::{Column, TableBuilder};
 use std::sync::{Arc, Mutex};
 
 pub struct WindowState {
     pub options: WindowOptions,
+    pub data: WindowData,
     pub open: bool,
 }
 
 impl WindowState {
+    pub fn default() -> Self {
+        Self {
+            options: window_options(),
+            data: WindowData::default(),
+            open: false,
+        }
+    }
+
     pub fn open(&mut self, config: AppConfig, image_repo_info: container::RepositoryInfo) {
-        self.options.selected_image_info = Some(image_repo_info);
-        self.options.config = config;
-        self.options.edit_info = None;
-        self.options.push_info = None;
+        self.data.selected_image_info = Some(image_repo_info);
+        self.data.config = config;
+        self.data.edit_info = None;
+        self.data.push_info = None;
         self.open = true;
+    }
+
+    pub fn close(&mut self) {
+        self.open = false;
     }
 }
 
-impl Default for WindowState {
-    fn default() -> Self {
-        Self {
-            options: WindowOptions::default(),
-            open: false,
-        }
+pub fn window_options() -> WindowOptions {
+    WindowOptions {
+        id: Id::new("upload_window"),
+        title: "Subir a registro (Push)".to_owned(),
+        closable: true,
+        collapsible: true,
+        ..Default::default()
     }
 }
 
@@ -69,19 +84,8 @@ impl ImageInfo {
     }
 }
 
-pub struct WindowOptions {
-    title: String,
-    title_bar: bool,
-    closable: bool,
-    collapsible: bool,
-    movable: bool,
-    resizable: bool,
-    constrain: bool,
-    scroll2: Vec2b,
-    anchored: bool,
-    anchor: egui::Align2,
-    anchor_offset: egui::Vec2,
-    pub data_is_loading: bool,
+#[derive(Default)]
+pub struct WindowData {
     pub selected_image_info: Option<container::RepositoryInfo>,
     pub config: AppConfig,
     pub edit_info: Option<ImageInfo>,
@@ -113,89 +117,13 @@ impl PushProgress {
     }
 }
 
-impl Default for WindowOptions {
-    fn default() -> Self {
-        Self {
-            title: "Subir a registro (Push)".to_owned(),
-            title_bar: true,
-            closable: true,
-            collapsible: true,
-            movable: true,
-            resizable: false,
-            constrain: true,
-            scroll2: Vec2b::FALSE,
-            anchored: false,
-            anchor: egui::Align2::RIGHT_TOP,
-            anchor_offset: egui::Vec2::ZERO,
-            data_is_loading: false,
-            selected_image_info: None,
-            config: AppConfig::default(),
-            edit_info: None,
-            push_info: None,
-        }
-    }
-}
-
-pub fn show(mut options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool) {
-    let title = options.title.clone();
-    let title_bar = options.title_bar;
-    let closable = options.closable;
-    let collapsible = options.collapsible;
-    let movable = options.movable;
-    let resizable = options.resizable;
-    let constrain = options.constrain;
-    let scroll2 = options.scroll2;
-    let anchored = options.anchored;
-    let anchor = options.anchor;
-    let anchor_offset = options.anchor_offset;
-    let data_is_loading = options.data_is_loading;
-
-    let enabled = !data_is_loading;
-    if !enabled {
-        ui.request_repaint();
-    }
-
-    let mut window = egui::Window::new(title)
-        .id(egui::Id::new("upload_window_options")) // required since we change the title
-        .resizable(resizable)
-        .constrain(constrain)
-        .collapsible(collapsible)
-        .movable(movable)
-        .title_bar(title_bar)
-        .scroll(scroll2)
-        .constrain_to(ui.available_rect_before_wrap())
-        .enabled(enabled);
-    if closable {
-        window = window.open(open);
-    }
-    if anchored {
-        window = window.anchor(anchor, anchor_offset);
-    }
-    let rect_size = ui.content_rect().size();
-    window
-        .default_pos(egui::pos2(rect_size.x / 2.0, rect_size.y / 2.0))
-        .show(ui, |ui| ui_fn(&mut options, ui));
-}
-
-fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
-    let WindowOptions {
-        title: _,
-        title_bar: _,
-        closable: _,
-        collapsible: _,
-        movable: _,
-        resizable: _,
-        constrain: _,
-        scroll2: _,
-        anchored: _,
-        anchor: _,
-        anchor_offset: _,
-        data_is_loading: _,
+pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
+    let WindowData {
         selected_image_info,
         config,
         edit_info,
         push_info,
-    } = options;
+    } = data;
 
     let Some(selected_image_info) = selected_image_info else {
         eprintln!("Window opened without selected_image_info");

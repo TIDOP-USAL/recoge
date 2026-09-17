@@ -1,24 +1,46 @@
 use crate::container;
 use crate::container::ImageCollection;
 use crate::tasks::Task;
+use crate::window::{WindowOptions, WindowSize};
 use crate::zot::ImageDisplayMetadata;
 use bollard::config::ImageDeleteResponseItem;
 use eframe::egui;
-use egui::{Id, Modal, Vec2b};
+use egui::{Id, Modal};
 use egui_extras::{Column, TableBuilder};
 use std::sync::{Arc, Mutex};
 
 pub struct WindowState {
     pub options: WindowOptions,
+    pub data: WindowData,
     pub open: bool,
 }
 
-impl Default for WindowState {
-    fn default() -> Self {
+impl WindowState {
+    pub fn default() -> Self {
         Self {
-            options: WindowOptions::default(),
-            open: false,
+            options: window_options(),
+            data: WindowData::default(),
+            open: false, // closed
         }
+    }
+    pub fn open(&mut self, data: WindowData) {
+        self.data = data;
+        self.open = true;
+    }
+
+    pub fn close(&mut self) {
+        self.open = false;
+    }
+}
+
+pub fn window_options() -> WindowOptions {
+    WindowOptions {
+        id: Id::new("image_window"),
+        title: "Información de imagen".to_owned(),
+        closable: true,
+        collapsible: true,
+        fixed_size: WindowSize::Half,
+        ..Default::default()
     }
 }
 
@@ -31,20 +53,8 @@ pub enum RemoteImageStatus {
     //DigestMismatch,
 }
 
-#[derive(Clone)]
-pub struct WindowOptions {
-    title: String,
-    title_bar: bool,
-    closable: bool,
-    collapsible: bool,
-    movable: bool,
-    resizable: bool,
-    constrain: bool,
-    scroll2: Vec2b,
-    anchored: bool,
-    anchor: egui::Align2,
-    anchor_offset: egui::Vec2,
-    pub data_is_loading: bool,
+#[derive(Default)]
+pub struct WindowData {
     pub main_list_reload_flag: Option<Arc<Mutex<bool>>>,
     pub selected_image_name: Option<String>,
     pub image_in_local: Option<bool>,
@@ -52,104 +62,11 @@ pub struct WindowOptions {
     pub remote_images_metadata: Vec<ImageDisplayMetadata>,
     pub image_collection: Option<ImageCollection>,
     pub image_inspect: Option<bollard::models::ImageInspect>,
-    delete_modal_data: Option<ModalData>,
+    pub delete_modal_data: Option<ModalData>, // None: closed
 }
 
-// TODO educe default
-impl Default for WindowOptions {
-    fn default() -> Self {
-        Self {
-            title: "Información de imagen".to_owned(),
-            title_bar: true,
-            closable: true,
-            collapsible: true,
-            movable: true,
-            resizable: false,
-            constrain: true,
-            scroll2: Vec2b::FALSE,
-            anchored: false,
-            anchor: egui::Align2::RIGHT_TOP,
-            anchor_offset: egui::Vec2::ZERO,
-            data_is_loading: false,
-            main_list_reload_flag: None,
-            selected_image_name: None,
-            image_in_local: None,
-            image_in_remote: None,
-            remote_images_metadata: Vec::new(),
-            image_collection: None,
-            image_inspect: None,
-            delete_modal_data: None,
-        }
-    }
-}
-
-pub fn show(mut options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool) {
-    let WindowOptions {
-        title,
-        title_bar,
-        closable,
-        collapsible,
-        movable,
-        resizable,
-        constrain,
-        scroll2,
-        anchored,
-        anchor,
-        anchor_offset,
-        data_is_loading,
-        main_list_reload_flag: _,
-        selected_image_name: _,
-        image_in_local: _,
-        image_in_remote: _,
-        remote_images_metadata: _,
-        image_collection: _,
-        image_inspect: _,
-        delete_modal_data: _,
-    } = options.clone();
-
-    let enabled = !data_is_loading;
-    if !enabled {
-        ui.request_repaint();
-    }
-
-    let mut window = egui::Window::new(title)
-        .id(egui::Id::new("image_info_window_options")) // required since we change the title
-        .resizable(resizable)
-        .constrain(constrain)
-        .collapsible(collapsible)
-        .movable(movable)
-        .title_bar(title_bar)
-        .scroll(scroll2)
-        .constrain_to(ui.available_rect_before_wrap())
-        .enabled(enabled);
-    if closable {
-        window = window.open(open);
-    }
-    if anchored {
-        window = window.anchor(anchor, anchor_offset);
-    }
-    let ui_rect_size = ui.content_rect().size();
-    let window_size = egui::vec2(ui_rect_size.x / 2.0, ui_rect_size.y / 2.0);
-    window
-        .default_pos(egui::pos2(ui_rect_size.x / 2.0, ui_rect_size.y / 2.0))
-        .fixed_size(window_size)
-        .show(ui, |ui| ui_fn(&mut options, ui));
-}
-
-fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
-    let WindowOptions {
-        title: _,
-        title_bar: _,
-        closable: _,
-        collapsible: _,
-        movable: _,
-        resizable: _,
-        constrain: _,
-        scroll2: _,
-        anchored: _,
-        anchor: _,
-        anchor_offset: _,
-        data_is_loading: _,
+pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
+    let WindowData {
         main_list_reload_flag,
         selected_image_name,
         image_in_local,
@@ -158,7 +75,7 @@ fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
         image_collection,
         image_inspect,
         delete_modal_data,
-    } = options;
+    } = data;
 
     let Some(main_list_reload_flag) = main_list_reload_flag else {
         eprintln!("Window opened without main_list_reload_flag");

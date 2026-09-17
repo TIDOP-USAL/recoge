@@ -5,6 +5,7 @@ use crate::image_info_window;
 use crate::remote_list_window;
 use crate::tasks::Task;
 use crate::upload_window;
+use crate::window::WindowOptions;
 use crate::zot;
 use config::AppConfig;
 use eframe::egui;
@@ -57,6 +58,16 @@ pub struct GlobalData {
     pub version: String,
     pub config_state: LoadState,
     pub config: AppConfig,
+}
+
+impl Default for GlobalData {
+    fn default() -> Self {
+        Self {
+            config_state: crate::ui::LoadState::NotLoaded,
+            config: crate::configuration::AppConfig::default(),
+            version: String::new(),
+        }
+    }
 }
 
 pub struct MyApp {
@@ -273,9 +284,7 @@ impl MyApp {
                 }
             }
 
-            let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
-            image_info_window_state.options.main_list_reload_flag = Some(main_list_reload_flag_arc);
-            image_info_window_state.options.data_is_loading = false;
+            let main_list_reload_flag = Some(main_list_reload_flag_arc);
 
             // BUGFIX, wrong size on inspect, use parent size
             local_images.size_bytes = image.size_bytes;
@@ -283,16 +292,16 @@ impl MyApp {
 
             //println!("local_images: {local_images:#?}");
             // Set window parameters. TODO send image itself?
-            image_info_window_state.options.image_inspect = Some(image_inspect.clone());
-            image_info_window_state.options.selected_image_name = Some(image.get_image_name());
-            image_info_window_state.options.image_collection = Some(local_images.clone());
+            let image_inspect = Some(image_inspect.clone());
+            let selected_image_name = Some(image.get_image_name());
+            let image_collection = Some(local_images.clone());
 
-            image_info_window_state.options.image_in_local = Some(true);
+            let image_in_local = Some(true);
             // TODO refactor RemoteImageStatus usage
             // Safety. Check both dates
             // If zot info
-            if let Some(in_remote) = image_in_remote_option {
-                image_info_window_state.options.image_in_remote = if in_remote {
+            let mut image_in_remote = if let Some(in_remote) = image_in_remote_option {
+                if in_remote {
                     // Image is in remote. Compare dates
                     if let Some(remote_date) = remote_image_date_option {
                         println!("Date check. Local: {local_date:?}. Remote: {remote_date:?}");
@@ -311,8 +320,10 @@ impl MyApp {
                 } else {
                     println!("Image not in remote");
                     Some(RemoteImageStatus::Missing)
-                };
-            }
+                }
+            } else {
+                None
+            };
             // Check through digests. Required on Docker@Windows
             // TODO refactor and remove
             println!("Remote digests: {:#?}", remote_images_digests);
@@ -326,8 +337,7 @@ impl MyApp {
                 println!("Checking: {local_digest}");
                 if remote_images_digests.contains(&local_digest.to_string()) {
                     println!("Digest match!");
-                    image_info_window_state.options.image_in_remote =
-                        Some(RemoteImageStatus::Present);
+                    image_in_remote = Some(RemoteImageStatus::Present);
                     break;
                 }
             }
@@ -335,10 +345,21 @@ impl MyApp {
             // Extra repos from zot
             remote_images_metadata.sort();
             remote_images_metadata.dedup();
-            image_info_window_state.options.remote_images_metadata = remote_images_metadata;
 
             // Open window
-            image_info_window_state.open = true;
+            let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
+            image_info_window_state.options.data_is_loading = false;
+            let data = image_info_window::WindowData {
+                main_list_reload_flag,
+                selected_image_name,
+                image_in_local,
+                image_in_remote,
+                remote_images_metadata,
+                image_collection,
+                image_inspect,
+                delete_modal_data: None,
+            };
+            image_info_window_state.open(data);
         });
     }
 
@@ -359,7 +380,7 @@ impl MyApp {
             };
 
             println!("Cargando lista remota");
-            let mut list = match client.get_image_list().await {
+            let mut remote_image_list = match client.get_image_list().await {
                 Ok(x) => x,
                 Err(x) => {
                     let window_state = &mut *remote_list_window_state_arc.lock().unwrap();
@@ -372,21 +393,26 @@ impl MyApp {
                     return;
                 }
             };
-            list.sort_by_key(|x| x.date); // Oldest image first
-            println!("{list:#?}");
+            remote_image_list.sort_by_key(|x| x.date); // Oldest image first
+            println!("{remote_image_list:#?}");
             // TODO testing
-            let last_image = list.last().unwrap().clone();
+            let last_image = remote_image_list.last().unwrap().clone();
             let is_in_remote = last_image.clone().get_remote_info(&mut client).await;
             println!("is in remote: {is_in_remote:?}");
             let is_in_local = last_image.is_in_local().await;
             println!("is in local: {is_in_local:?}");
             // Set window parameters
-            let window_state = &mut *remote_list_window_state_arc.lock().unwrap();
-            window_state.options.main_list_reload_flag = Some(main_list_reload_flag_arc);
-            window_state.options.data_is_loading = false;
-            window_state.options.remote_image_list = list;
-            window_state.options.app_config = config.clone();
+            let main_list_reload_flag = Some(main_list_reload_flag_arc);
+            let app_config = config.clone();
             // Open window
+            let window_state = &mut *remote_list_window_state_arc.lock().unwrap();
+            window_state.options.data_is_loading = false;
+            let mut data = remote_list_window::WindowData::default();
+            data.main_list_reload_flag = main_list_reload_flag;
+            data.app_config = app_config;
+            data.remote_image_list = remote_image_list;
+            data.toasts_arc = toasts_arc;
+            window_state.data = data;
             window_state.open = true;
         });
     }
@@ -457,32 +483,41 @@ impl eframe::App for MyApp {
 
         let upload_window_state_arc = Arc::clone(&self.upload_window_state);
         let upload_window_state = &mut *upload_window_state_arc.lock().unwrap();
-        upload_window::show(
+        WindowOptions::show(
             &mut upload_window_state.options,
+            &mut upload_window_state.data,
             ui,
             &mut upload_window_state.open,
+            upload_window::ui_fn,
         );
         let image_info_window_state_arc = Arc::clone(&self.image_info_window_state);
         let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
-        image_info_window::show(
+        WindowOptions::show(
             &mut image_info_window_state.options,
+            &mut image_info_window_state.data,
             ui,
             &mut image_info_window_state.open,
+            image_info_window::ui_fn,
         );
         let config_window_state_arc = Arc::clone(&self.config_window_state);
         let config_window_state = &mut *config_window_state_arc.lock().unwrap();
-        config_window::show(
+        WindowOptions::show(
             &mut config_window_state.options,
+            &mut config_window_state.data,
             ui,
             &mut config_window_state.open,
+            config_window::ui_fn,
         );
         let remote_list_window_state_arc = Arc::clone(&self.remote_list_window_state);
         let remote_list_window_state = &mut *remote_list_window_state_arc.lock().unwrap();
-        remote_list_window::show(
+        WindowOptions::show(
             &mut remote_list_window_state.options,
+            &mut remote_list_window_state.data,
             ui,
             &mut remote_list_window_state.open,
+            remote_list_window::ui_fn,
         );
+
         //println!("{}",image_info_window_state.open);
         if image_info_window_state.options.data_is_loading
             || remote_list_window_state.options.data_is_loading
@@ -513,7 +548,6 @@ impl eframe::App for MyApp {
                 .on_hover_text("Recargar lista de imágenes")
                 .clicked()
             {
-                image_info_window_state.options.data_is_loading = true;
                 *self.image_list_load_state.lock().unwrap() = LoadState::Loading;
                 self.update_list();
             }
@@ -530,9 +564,11 @@ impl eframe::App for MyApp {
                 .on_hover_text("Configuración")
                 .clicked()
             {
-                config_window_state.options.app_config_copy = global_data.config.clone();
-                config_window_state.options.global_data_arc = Arc::clone(&self.global_data);
-                config_window_state.open = true;
+                config_window_state.open(
+                    global_data.config.clone(),
+                    Arc::clone(&self.global_data),
+                    Arc::clone(&self.toasts),
+                );
             }
 
             ui.separator();

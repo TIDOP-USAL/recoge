@@ -2,10 +2,11 @@
 use crate::configuration::AppConfig;
 use crate::container;
 use crate::tasks::Task;
+use crate::window::{WindowOptions, WindowSize};
 use crate::zot;
 use bollard::config::CreateImageInfo;
 use eframe::egui;
-use egui::{Id, Modal, Vec2b};
+use egui::{Id, Modal};
 use egui_extras::{Column, TableBuilder};
 use egui_notify::Toasts;
 use std::sync::{Arc, Mutex};
@@ -13,7 +14,54 @@ use std::sync::{Arc, Mutex};
 #[derive(Default)]
 pub struct WindowState {
     pub options: WindowOptions,
-    pub open: bool, // default: closed
+    pub data: WindowData,
+    pub open: bool,
+}
+
+impl WindowState {
+    pub fn default() -> Self {
+        Self {
+            options: window_options(),
+            data: WindowData::default(),
+            open: false, // closed
+        }
+    }
+}
+
+pub fn window_options() -> WindowOptions {
+    let max_window_size = egui::vec2(650.0, 225.0);
+    let min_window_size = egui::vec2(600.0, 225.0);
+    WindowOptions {
+        id: Id::new("remote_list_window"),
+        title: "Imágenes en Registro".to_owned(),
+        closable: true,
+        collapsible: true,
+        min_size: WindowSize::Fixed(min_window_size),
+        max_size: WindowSize::Fixed(max_window_size),
+        ..Default::default()
+    }
+}
+
+pub struct WindowData {
+    pub main_list_reload_flag: Option<Arc<Mutex<bool>>>,
+    pub app_config: AppConfig,
+    pub remote_image_list: Vec<container::Image>,
+    pub toasts_arc: Arc<Mutex<Toasts>>,
+    date_rev: bool,
+    pull_modal_data: Option<ModalData>,
+}
+
+impl Default for WindowData {
+    fn default() -> Self {
+        Self {
+            main_list_reload_flag: None,
+            app_config: AppConfig::default(),
+            remote_image_list: Vec::new(),
+            toasts_arc: Arc::new(Mutex::new(Toasts::default())),
+            date_rev: true,
+            pull_modal_data: None,
+        }
+    }
 }
 
 #[derive(PartialEq, Clone)]
@@ -61,117 +109,15 @@ impl ModalData {
     }
 }
 
-pub struct WindowOptions {
-    title: String,
-    title_bar: bool,
-    closable: bool,
-    collapsible: bool,
-    movable: bool,
-    resizable: bool,
-    constrain: bool,
-    scroll2: Vec2b,
-    anchored: bool,
-    anchor: egui::Align2,
-    anchor_offset: egui::Vec2,
-    pub data_is_loading: bool,
-    pub main_list_reload_flag: Option<Arc<Mutex<bool>>>,
-    pub app_config: AppConfig,
-    pub remote_image_list: Vec<container::Image>,
-    pub toasts_arc: Arc<Mutex<Toasts>>,
-    date_rev: bool,
-    pull_modal_data: Option<ModalData>,
-}
-
-impl Default for WindowOptions {
-    fn default() -> Self {
-        Self {
-            title: "Imágenes en Registro".to_owned(),
-            title_bar: true,
-            closable: true,
-            collapsible: true,
-            movable: true,
-            resizable: false,
-            constrain: true,
-            scroll2: Vec2b::FALSE,
-            anchored: false,
-            anchor: egui::Align2::RIGHT_TOP,
-            anchor_offset: egui::Vec2::ZERO,
-            data_is_loading: false,
-            main_list_reload_flag: None,
-            app_config: AppConfig::default(),
-            remote_image_list: Vec::new(),
-            toasts_arc: Arc::new(Mutex::new(Toasts::default())),
-            date_rev: true,
-            pull_modal_data: None,
-        }
-    }
-}
-
-pub fn show(options: &mut WindowOptions, ui: &mut egui::Ui, open: &mut bool) {
-    let title = options.title.clone();
-    let title_bar = options.title_bar;
-    let closable = options.closable;
-    let collapsible = options.collapsible;
-    let movable = options.movable;
-    let resizable = options.resizable;
-    let constrain = options.constrain;
-    let scroll2 = options.scroll2;
-    let anchored = options.anchored;
-    let anchor = options.anchor;
-    let anchor_offset = options.anchor_offset;
-
-    let enabled = true;
-    if !enabled {
-        ui.request_repaint();
-    }
-
-    let mut window = egui::Window::new(title)
-        .id(egui::Id::new("remote_list_window_options"))
-        .resizable(resizable)
-        .constrain(constrain)
-        .collapsible(collapsible)
-        .movable(movable)
-        .title_bar(title_bar)
-        .scroll(scroll2)
-        .constrain_to(ui.available_rect_before_wrap())
-        .enabled(enabled);
-    if closable {
-        window = window.open(open);
-    }
-    if anchored {
-        window = window.anchor(anchor, anchor_offset);
-    }
-    let ui_rect_size = ui.content_rect().size();
-    let max_window_size = egui::vec2(ui_rect_size.x / 1.4, ui_rect_size.y / 2.0);
-    let min_window_size = egui::vec2(600.0, ui_rect_size.y / 2.0);
-    window
-        .default_pos(egui::pos2(ui_rect_size.x / 2.0, ui_rect_size.y / 2.0))
-        .max_size(max_window_size)
-        .min_size(min_window_size)
-        .show(ui, |ui| ui_fn(options, ui));
-}
-
-fn ui_fn(options: &mut WindowOptions, ui: &mut egui::Ui) {
-    let WindowOptions {
-        title: _,
-        title_bar: _,
-        closable: _,
-        collapsible: _,
-        movable: _,
-        resizable: _,
-        constrain: _,
-        scroll2: _,
-        anchored: _,
-        anchor: _,
-        anchor_offset: _,
-        data_is_loading: _,
+pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
+    let WindowData {
         main_list_reload_flag,
         app_config,
         remote_image_list,
         toasts_arc: _,
         date_rev,
         pull_modal_data,
-    } = options;
+    } = data;
 
     let Some(main_list_reload_flag) = main_list_reload_flag else {
         eprintln!("Window opened without main_list_reload_flag");
@@ -249,7 +195,7 @@ fn table_ui(
                 egui::Sides::new().show(
                     ui,
                     |ui| {
-                        ui.strong("Fecha de creación");
+                        ui.strong("Fecha de subida");
                     },
                     |ui| {
                         *date_rev ^= ui
