@@ -13,6 +13,8 @@ use egui::{Align, Layout, UiBuilder};
 use egui_extras::Column;
 use egui_extras::TableBuilder;
 use egui_notify::Toasts;
+use futures::executor::block_on;
+use futures::lock::Mutex as AsyncMutex;
 use image_info_window::RemoteImageStatus;
 use std::sync::{Arc, Mutex};
 
@@ -71,15 +73,15 @@ impl Default for GlobalData {
 }
 
 pub struct MyApp {
-    global_data: Arc<Mutex<GlobalData>>,
-    toasts: Arc<Mutex<Toasts>>,
+    global_data: Arc<AsyncMutex<GlobalData>>,
+    toasts: Arc<AsyncMutex<Toasts>>,
     image_list: Arc<Mutex<Vec<Image>>>,
     image_list_load_state: Arc<Mutex<LoadState>>,
     image_list_should_reload: Arc<Mutex<bool>>,
     tasks: Task<()>,
     upload_window_state: Arc<Mutex<upload_window::WindowState>>,
     image_info_window_state: Arc<Mutex<image_info_window::WindowState>>,
-    remote_list_window_state: Arc<Mutex<remote_list_window::WindowState>>,
+    remote_list_window_state: Arc<AsyncMutex<remote_list_window::WindowState>>,
     config_window_state: Arc<Mutex<config_window::WindowState>>,
     image_table_data: ImageTableData,
 }
@@ -93,18 +95,18 @@ impl MyApp {
             let Ok(config) = AppConfig::get_config() else {
                 //global_data.config_state = LoadState::NotLoaded;
                 // This would trigger this fn again
-                let mut toasts = toasts_arc.lock().unwrap();
+                let mut toasts = toasts_arc.lock().await;
                 toasts
                     .error("No se ha podido cargar la configuración")
                     .duration(std::time::Duration::from_secs(5));
                 return;
             };
-            let mut global_data = global_data_arc.lock().unwrap();
+            let mut global_data = global_data_arc.lock().await;
             global_data.config = config;
             global_data.config_state = LoadState::Loaded;
             println!("Config loaded!");
             if global_data.config.is_missing_credentials() {
-                let mut toasts = toasts_arc.lock().unwrap();
+                let mut toasts = toasts_arc.lock().await;
                 toasts
                     .warning("No se ha configurado el usuario del Registro")
                     .duration(std::time::Duration::from_secs(5));
@@ -122,14 +124,14 @@ impl MyApp {
                 *image_list_load_state_arc.lock().unwrap() = LoadState::NotLoaded;
                 toasts_arc
                     .lock()
-                    .unwrap()
+                    .await
                     .error("Error de conexión. Comprueba que Docker esté funcionando.")
                     .duration(std::time::Duration::from_secs(3));
                 return;
             };
             let Ok(mut images) = docker.image_list().await else {
                 *image_list_load_state_arc.lock().unwrap() = LoadState::NotLoaded;
-                let mut toasts = toasts_arc.lock().unwrap();
+                let mut toasts = toasts_arc.lock().await;
                 toasts
                     .error("No se puede obtener la lista de imágenes.")
                     .duration(std::time::Duration::from_secs(3));
@@ -155,7 +157,7 @@ impl MyApp {
             let Ok(docker) = container::Client::new().await else {
                 toasts_arc
                     .lock()
-                    .unwrap()
+                    .await
                     .error("Error de conexión. Comprueba que Docker esté funcionando.")
                     .duration(std::time::Duration::from_secs(3));
                 return;
@@ -165,7 +167,7 @@ impl MyApp {
 
             // Get remote image info
             let Ok(mut zot_client) = zot::Client::new(&config) else {
-                let mut toasts = toasts_arc.lock().unwrap();
+                let mut toasts = toasts_arc.lock().await;
                 toasts
                     .error("Error de conexión. Comprueba las credenciales del Registro.")
                     .duration(std::time::Duration::from_secs(3));
@@ -194,7 +196,7 @@ impl MyApp {
 
             if let Err(x) = inspect_result {
                 println!("Error when inspecting local image: {x:?}");
-                let mut toasts = toasts_arc.lock().unwrap();
+                let mut toasts = toasts_arc.lock().await;
                 if x.is_not_found() {
                     toasts
                         .info("No se encuentra información de la imagen.")
@@ -213,7 +215,7 @@ impl MyApp {
             //println!("image_inspect: {image_inspect:#?}");
 
             let Ok(mut local_images) = container::ImageCollection::try_from(&image_inspect) else {
-                let mut toasts = toasts_arc.lock().unwrap();
+                let mut toasts = toasts_arc.lock().await;
                 toasts
                     .error("Error al leer la información de imagen.")
                     .duration(std::time::Duration::from_secs(3));
@@ -369,51 +371,15 @@ impl MyApp {
         let toasts_arc = Arc::clone(&self.toasts);
 
         self.tasks.fire_async(async move {
-            let Ok(mut client) = zot::Client::new(&config) else {
-                let window_state = &mut *remote_list_window_state_arc.lock().unwrap();
-                window_state.options.data_is_loading = false;
-                let mut toasts = toasts_arc.lock().unwrap();
-                toasts
-                    .error("Error de conexión. Comprueba las credenciales del Registro.")
-                    .duration(std::time::Duration::from_secs(3));
-                return;
-            };
-
-            println!("Cargando lista remota");
-            let mut remote_image_list = match client.get_image_list().await {
-                Ok(x) => x,
-                Err(x) => {
-                    let window_state = &mut *remote_list_window_state_arc.lock().unwrap();
-                    window_state.options.data_is_loading = false;
-                    println!("error: {x:?}");
-                    let mut toasts = toasts_arc.lock().unwrap();
-                    toasts
-                        .error("Error de conexión. Comprueba las credenciales del Registro.")
-                        .duration(std::time::Duration::from_secs(3));
-                    return;
-                }
-            };
-            remote_image_list.sort_by_key(|x| x.date); // Oldest image first
-            println!("{remote_image_list:#?}");
-            // TODO testing
-            let last_image = remote_image_list.last().unwrap().clone();
-            let is_in_remote = last_image.clone().get_remote_info(&mut client).await;
-            println!("is in remote: {is_in_remote:?}");
-            let is_in_local = last_image.is_in_local().await;
-            println!("is in local: {is_in_local:?}");
-            // Set window parameters
-            let main_list_reload_flag = Some(main_list_reload_flag_arc);
-            let app_config = config.clone();
-            // Open window
-            let window_state = &mut *remote_list_window_state_arc.lock().unwrap();
-            window_state.options.data_is_loading = false;
-            let mut data = remote_list_window::WindowData::default();
-            data.main_list_reload_flag = main_list_reload_flag;
-            data.app_config = app_config;
-            data.remote_image_list = remote_image_list;
-            data.toasts_arc = toasts_arc;
-            window_state.data = data;
-            window_state.open = true;
+            let mut remote_list_window_state = remote_list_window_state_arc.lock().await;
+            let load_result = remote_list_window_state
+                .load_list_data(&config, main_list_reload_flag_arc, toasts_arc)
+                .await;
+            if let Ok(_) = load_result {
+                remote_list_window_state.open();
+            } else {
+                println!("Returned an error");
+            }
         });
     }
 }
@@ -441,12 +407,12 @@ impl Default for MyApp {
             });
         }
         Self {
-            global_data: Arc::new(Mutex::new(GlobalData {
+            global_data: Arc::new(AsyncMutex::new(GlobalData {
                 config_state: LoadState::NotLoaded,
                 config: config::AppConfig::default(),
                 version: env!("CARGO_PKG_VERSION").to_string(),
             })),
-            toasts: Arc::new(Mutex::new(
+            toasts: Arc::new(AsyncMutex::new(
                 Toasts::default().with_anchor(egui_notify::Anchor::BottomRight),
             )),
             image_list: Arc::new(Mutex::new(image_list)),
@@ -455,7 +421,7 @@ impl Default for MyApp {
             tasks: Task::new(),
             upload_window_state: Arc::new(Mutex::new(upload_window::WindowState::default())),
             config_window_state: Arc::new(Mutex::new(config_window::WindowState::default())),
-            remote_list_window_state: Arc::new(Mutex::new(
+            remote_list_window_state: Arc::new(AsyncMutex::new(
                 remote_list_window::WindowState::default(),
             )),
             image_info_window_state: Arc::new(
@@ -471,15 +437,16 @@ impl Default for MyApp {
 impl eframe::App for MyApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let global_data_arc = Arc::clone(&self.global_data);
-        let mut global_data = global_data_arc.lock().unwrap();
+        let mut global_data = block_on(global_data_arc.lock().into_future());
         if global_data.config_state == LoadState::NotLoaded {
             global_data.config_state = LoadState::Loading;
             self.get_config();
         }
 
         let toasts_arc = Arc::clone(&self.toasts);
-        let mut toasts = toasts_arc.lock().unwrap();
+        let mut toasts = block_on(toasts_arc.lock().into_future());
         toasts.show(ui);
+        drop(toasts);
 
         let upload_window_state_arc = Arc::clone(&self.upload_window_state);
         let upload_window_state = &mut *upload_window_state_arc.lock().unwrap();
@@ -509,7 +476,8 @@ impl eframe::App for MyApp {
             config_window::ui_fn,
         );
         let remote_list_window_state_arc = Arc::clone(&self.remote_list_window_state);
-        let remote_list_window_state = &mut *remote_list_window_state_arc.lock().unwrap();
+        let rlws_future = remote_list_window_state_arc.lock().into_future();
+        let remote_list_window_state = &mut *block_on(rlws_future);
         WindowOptions::show(
             &mut remote_list_window_state.options,
             &mut remote_list_window_state.data,

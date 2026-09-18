@@ -9,6 +9,7 @@ use eframe::egui;
 use egui::{Id, Modal};
 use egui_extras::{Column, TableBuilder};
 use egui_notify::Toasts;
+use futures::lock::Mutex as AsyncMutex;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
@@ -25,6 +26,68 @@ impl WindowState {
             data: WindowData::default(),
             open: false, // closed
         }
+    }
+
+    pub async fn load_list_data(
+        &mut self,
+        config: &AppConfig,
+        reload_flag: Arc<Mutex<bool>>,
+        toasts: Arc<AsyncMutex<Toasts>>,
+    ) -> Result<(), ()> {
+        let window_state = self;
+        let Ok(mut client) = zot::Client::new(&config) else {
+            window_state.options.data_is_loading = false;
+            let mut toasts = toasts.lock().await;
+            toasts
+                .error("Error de conexión. Comprueba las credenciales del Registro.")
+                .duration(std::time::Duration::from_secs(3));
+            return Err(());
+        };
+
+        println!("Cargando lista remota");
+        let mut remote_image_list = match client.get_image_list().await {
+            Ok(x) => x,
+            Err(x) => {
+                println!("error: {x:?}");
+                window_state.options.data_is_loading = false;
+                toasts
+                    .lock()
+                    .await
+                    .error("Error de conexión. Comprueba las credenciales del Registro.")
+                    .duration(std::time::Duration::from_secs(3));
+                return Err(());
+            }
+        };
+        remote_image_list.sort_by_key(|x| x.date); // Oldest image first
+        println!("{remote_image_list:#?}");
+        // TODO testing
+        let last_image = remote_image_list.last().unwrap().clone();
+        let is_in_remote = last_image.clone().get_remote_info(&mut client).await;
+        println!("is in remote: {is_in_remote:?}");
+        let is_in_local = last_image.is_in_local().await;
+        println!("is in local: {is_in_local:?}");
+        // Set window parameters
+        let main_list_reload_flag = Some(reload_flag);
+        let app_config = config.clone();
+        // Open window
+
+        window_state.options.data_is_loading = false;
+        let mut data = WindowData::default();
+        data.main_list_reload_flag = main_list_reload_flag;
+        data.app_config = app_config;
+        data.remote_image_list = remote_image_list;
+        //data.toasts_arc = toasts;
+        window_state.data = data;
+        return Ok(());
+        //window_state.open = true;
+    }
+
+    pub fn open(&mut self) {
+        self.open = true;
+    }
+
+    pub fn close(&mut self) {
+        self.open = false;
     }
 }
 
@@ -46,7 +109,7 @@ pub struct WindowData {
     pub main_list_reload_flag: Option<Arc<Mutex<bool>>>,
     pub app_config: AppConfig,
     pub remote_image_list: Vec<container::Image>,
-    pub toasts_arc: Arc<Mutex<Toasts>>,
+    pub toasts_arc: Arc<AsyncMutex<Toasts>>,
     date_rev: bool,
     pull_modal_data: Option<ModalData>,
 }
@@ -57,7 +120,7 @@ impl Default for WindowData {
             main_list_reload_flag: None,
             app_config: AppConfig::default(),
             remote_image_list: Vec::new(),
-            toasts_arc: Arc::new(Mutex::new(Toasts::default())),
+            toasts_arc: Arc::new(AsyncMutex::new(Toasts::default())),
             date_rev: true,
             pull_modal_data: None,
         }

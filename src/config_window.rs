@@ -6,8 +6,9 @@ use crate::window::WindowOptions;
 use eframe::egui;
 use egui::{Align, Layout, UiBuilder};
 use egui_notify::Toasts;
+use futures::executor::block_on;
+use futures::lock::Mutex as AsyncMutex;
 use std::sync::Arc;
-use std::sync::Mutex;
 
 pub struct WindowState {
     pub options: WindowOptions,
@@ -27,8 +28,8 @@ impl WindowState {
     pub fn open(
         &mut self,
         config: AppConfig,
-        global_data_arc: Arc<Mutex<GlobalData>>,
-        toasts_arc: Arc<Mutex<Toasts>>,
+        global_data_arc: Arc<AsyncMutex<GlobalData>>,
+        toasts_arc: Arc<AsyncMutex<Toasts>>,
     ) {
         self.data.app_config_copy = config;
         self.data.global_data_arc = global_data_arc;
@@ -52,8 +53,8 @@ pub fn window_options() -> WindowOptions {
 #[derive(Default)]
 pub struct WindowData {
     pub app_config_copy: AppConfig, // TODO remove
-    pub global_data_arc: Arc<Mutex<GlobalData>>,
-    pub toasts_arc: Arc<Mutex<Toasts>>,
+    pub global_data_arc: Arc<AsyncMutex<GlobalData>>,
+    pub toasts_arc: Arc<AsyncMutex<Toasts>>,
     unsaved_changes: bool,
 }
 
@@ -74,7 +75,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
     fn update_temporal_config(
         unsaved_changes: &mut bool,
         new_config: &AppConfig,
-        global_data_arc: &Arc<Mutex<GlobalData>>,
+        global_data_arc: &Arc<AsyncMutex<GlobalData>>,
     ) {
         let mut tasks: Task<()> = Task::new();
         let global_data_arc = Arc::clone(global_data_arc);
@@ -199,8 +200,8 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
     //ui.label(format!("This window is on top: {on_top}."));
 }
 
-fn config_update(new_config: AppConfig, global_data_arc: &Arc<Mutex<GlobalData>>) {
-    let mut global_data = global_data_arc.lock().unwrap();
+fn config_update(new_config: AppConfig, global_data_arc: &Arc<AsyncMutex<GlobalData>>) {
+    let mut global_data = block_on(global_data_arc.lock().into_future());
     println!("locked global data");
     println!("new data: {new_config:?}");
     global_data.config.remote_url = new_config.remote_url;
@@ -208,11 +209,14 @@ fn config_update(new_config: AppConfig, global_data_arc: &Arc<Mutex<GlobalData>>
     global_data.config.password = new_config.password;
 }
 
-fn config_save(global_data_arc: &Arc<Mutex<GlobalData>>, toasts_arc: &Arc<Mutex<Toasts>>) {
-    let global_data = global_data_arc.lock().unwrap();
+fn config_save(
+    global_data_arc: &Arc<AsyncMutex<GlobalData>>,
+    toasts_arc: &Arc<AsyncMutex<Toasts>>,
+) {
+    let global_data = block_on(global_data_arc.lock().into_future());
     println!("locked global data");
     let result = global_data.config.serialize_config();
-    let mut toasts = toasts_arc.lock().unwrap();
+    let mut toasts = block_on(toasts_arc.lock().into_future());
     if let Ok(()) = result {
         println!("Saved config file");
         toasts.success("Configuración guardada correctamente");
