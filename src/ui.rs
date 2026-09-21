@@ -6,7 +6,6 @@ use crate::remote_list_window;
 use crate::tasks::Task;
 use crate::upload_window;
 use crate::window::WindowOptions;
-use crate::zot;
 use config::AppConfig;
 use eframe::egui;
 use egui::{Align, Layout, UiBuilder};
@@ -15,7 +14,6 @@ use egui_extras::TableBuilder;
 use egui_notify::Toasts;
 use futures::executor::block_on;
 use futures::lock::Mutex as AsyncMutex;
-use image_info_window::RemoteImageStatus;
 use std::sync::{Arc, Mutex};
 
 use container::Image;
@@ -80,7 +78,7 @@ pub struct MyApp {
     image_list_should_reload: Arc<Mutex<bool>>,
     tasks: Task<()>,
     upload_window_state: Arc<Mutex<upload_window::WindowState>>,
-    image_info_window_state: Arc<Mutex<image_info_window::WindowState>>,
+    image_info_window_state: Arc<AsyncMutex<image_info_window::WindowState>>,
     remote_list_window_state: Arc<AsyncMutex<remote_list_window::WindowState>>,
     config_window_state: Arc<Mutex<config_window::WindowState>>,
     image_table_data: ImageTableData,
@@ -151,217 +149,23 @@ impl MyApp {
         let image_info_window_state_arc = Arc::clone(&self.image_info_window_state);
         let main_list_reload_flag_arc = Arc::clone(&self.image_list_should_reload);
         let toasts_arc = Arc::clone(&self.toasts);
-
+	
         self.tasks.fire_async(async move {
-            println!("Inspecting: {}", image.get_image_name());
-            let Ok(docker) = container::Client::new().await else {
-                toasts_arc
-                    .lock()
-                    .await
-                    .error("Error de conexión. Comprueba que Docker esté funcionando.")
-                    .duration(std::time::Duration::from_secs(3));
-                return;
+            let mut image_info_window_state = image_info_window_state_arc.lock().await;
+	    image_info_window_state.options.data_is_loading = true;
+            let arc = Arc::clone(&image_info_window_state.data);
+            let mut data = block_on(arc.lock());
+            data.init(config, toasts_arc, main_list_reload_flag_arc)
+                .await;
+            let input_data = image_info_window::ImageInspectInput {
+                id: image_info_window::ImageInspectType::LocalNamed(image.get_image_name()),
+                date: Some(image.date),
+                size_bytes: image.size_bytes,
             };
-            // Inspect local image
-            let inspect_result = docker.image_inspect(image.get_image_name()).await;
-
-            // Get remote image info
-            let Ok(mut zot_client) = zot::Client::new(&config) else {
-                let mut toasts = toasts_arc.lock().await;
-                toasts
-                    .error("Error de conexión. Comprueba las credenciales del Registro.")
-                    .duration(std::time::Duration::from_secs(3));
-                return;
-            };
-            let mut image_in_remote_option = None;
-            let mut remote_image_date_option = None;
-            let mut remote_images_digests = Vec::new();
-            let mut remote_images_metadata = Vec::new();
-            // Image info
-            if inspect_result.is_ok()
-                && image.has_image_name()
-                && let Ok(remote_info) = image.clone().get_remote_info(&mut zot_client).await
-            {
-                println!("zot returned: {remote_info:#?}");
-                // TODO refactor
-                image_in_remote_option = Some(remote_info.is_in_remote);
-                if remote_info.is_in_remote
-                    && let Some(image_info) = remote_info.image_info
-                {
-                    remote_image_date_option = Some(image_info.date);
-                    let mut digests = image_info.digests.clone();
-                    remote_images_digests.append(&mut digests);
-                }
-            }
-
-            if let Err(x) = inspect_result {
-                println!("Error when inspecting local image: {x:?}");
-                let mut toasts = toasts_arc.lock().await;
-                if x.is_not_found() {
-                    toasts
-                        .info("No se encuentra información de la imagen.")
-                        .duration(std::time::Duration::from_secs(3));
-                } else {
-                    // TODO 500 normalizing.
-                    toasts
-                        .error("Error de conexión. Comprueba que Docker está funcionando.")
-                        .duration(std::time::Duration::from_secs(3));
-                }
-                let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
-                image_info_window_state.options.data_is_loading = false;
-                return;
-            };
-            let mut image_inspect = inspect_result.unwrap();
-            //println!("image_inspect: {image_inspect:#?}");
-
-            let Ok(mut local_images) = container::ImageCollection::try_from(&image_inspect) else {
-                let mut toasts = toasts_arc.lock().await;
-                toasts
-                    .error("Error al leer la información de imagen.")
-                    .duration(std::time::Duration::from_secs(3));
-                let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
-                image_info_window_state.options.data_is_loading = false;
-                return;
-            };
-            let local_date = image.date;
-
-            // zot: Get associated images from all ImageCollection repos
-            let mut remote_digests = Vec::new();
-            if image.has_image_name() {
-                if let Ok(remote_images) = local_images
-                    .clone()
-                    .get_images_in_remote(&mut zot_client)
-                    .await
-                {
-                    for remote_image in remote_images {
-                        // Date checks
-                        let remote_date = remote_image.date;
-                        println!(
-                            "Date check. Local: {local_date:?}. Remote {}: {remote_date:?}",
-                            remote_image.get_image_name()
-                        );
-                        let offset = local_date - remote_date;
-                        let date_ok = offset.abs().num_seconds() < 2;
-                        // Digest check
-                        let mut digest_found = false;
-                        if let Some(remote_digest) = remote_image.digests.first() {
-                            for local_digest in &local_images.image_digests {
-                                // local_digest: repo@sha256:digest
-                                // remote_digests: sha256:digest
-                                let digest_parts = local_digest.split('@').collect::<Vec<_>>();
-                                let Some(local_digest) = digest_parts.last() else {
-                                    continue;
-                                };
-                                println!("Checking: {local_digest}");
-                                if remote_digest.contains(local_digest) {
-                                    println!("Digest match!");
-                                    digest_found = true;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if date_ok || digest_found {
-                            println!("Images match, OK!");
-                            if let Some(digest) = remote_image.digests.first() {
-                                remote_digests.push(digest.clone());
-                            }
-                            let image_metadata = zot_client.fill_image_metadata(remote_image);
-                            remote_images_metadata.push(image_metadata);
-                        }
-                    }
-                }
-            }
-            // Add any other repos that match the digest
-            remote_digests.sort();
-            remote_digests.dedup();
-            for digest in remote_digests {
-                if let Ok(images) = zot_client.get_digest_images(digest).await {
-                    for image in images {
-                        // Not checking against local image, since they have the same digest on the registry
-                        let image_metadata = zot_client.fill_image_metadata(image);
-                        println!("Added {} by digest", image_metadata.full_alias_name);
-                        remote_images_metadata.push(image_metadata);
-                    }
-                }
-            }
-
-            let main_list_reload_flag = Some(main_list_reload_flag_arc);
-
-            // BUGFIX, wrong size on inspect, use parent size
-            local_images.size_bytes = image.size_bytes;
-            image_inspect.size = image.size_bytes;
-
-            //println!("local_images: {local_images:#?}");
-            // Set window parameters. TODO send image itself?
-            let image_inspect = Some(image_inspect.clone());
-            let selected_image_name = Some(image.get_image_name());
-            let image_collection = Some(local_images.clone());
-
-            let image_in_local = Some(true);
-            // TODO refactor RemoteImageStatus usage
-            // Safety. Check both dates
-            // If zot info
-            let mut image_in_remote = if let Some(in_remote) = image_in_remote_option {
-                if in_remote {
-                    // Image is in remote. Compare dates
-                    if let Some(remote_date) = remote_image_date_option {
-                        println!("Date check. Local: {local_date:?}. Remote: {remote_date:?}");
-                        let offset = local_date - remote_date;
-                        if offset.abs().num_seconds() < 2 {
-                            println!("Dates match, OK!");
-                            Some(RemoteImageStatus::Present)
-                        } else {
-                            println!("Date mismatch.");
-                            Some(RemoteImageStatus::DateMismatch)
-                        }
-                    } else {
-                        println!("Internal error");
-                        None
-                    }
-                } else {
-                    println!("Image not in remote");
-                    Some(RemoteImageStatus::Missing)
-                }
-            } else {
-                None
-            };
-            // Check through digests. Required on Docker@Windows
-            // TODO refactor and remove
-            println!("Remote digests: {:#?}", remote_images_digests);
-            for local_digest in local_images.image_digests {
-                // local_digest: repo@sha256:digest
-                // remote_digests: sha256:digest
-                let digest_parts = local_digest.split('@').collect::<Vec<_>>();
-                let Some(local_digest) = digest_parts.last() else {
-                    continue;
-                };
-                println!("Checking: {local_digest}");
-                if remote_images_digests.contains(&local_digest.to_string()) {
-                    println!("Digest match!");
-                    image_in_remote = Some(RemoteImageStatus::Present);
-                    break;
-                }
-            }
-
-            // Extra repos from zot
-            remote_images_metadata.sort();
-            remote_images_metadata.dedup();
-
-            // Open window
-            let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
+            let _r = data.load_image_info(input_data).await;
+            // TODO if ok
             image_info_window_state.options.data_is_loading = false;
-            let data = image_info_window::WindowData {
-                main_list_reload_flag,
-                selected_image_name,
-                image_in_local,
-                image_in_remote,
-                remote_images_metadata,
-                image_collection,
-                image_inspect,
-                delete_modal_data: None,
-            };
-            image_info_window_state.open(data);
+            image_info_window_state.open();
         });
     }
 
@@ -424,9 +228,9 @@ impl Default for MyApp {
             remote_list_window_state: Arc::new(AsyncMutex::new(
                 remote_list_window::WindowState::default(),
             )),
-            image_info_window_state: Arc::new(
-                Mutex::new(image_info_window::WindowState::default()),
-            ),
+            image_info_window_state: Arc::new(AsyncMutex::new(
+                image_info_window::WindowState::default(),
+            )),
             image_table_data: ImageTableData {
                 date_reversed: true,
             },
@@ -458,7 +262,8 @@ impl eframe::App for MyApp {
             upload_window::ui_fn,
         );
         let image_info_window_state_arc = Arc::clone(&self.image_info_window_state);
-        let image_info_window_state = &mut *image_info_window_state_arc.lock().unwrap();
+        let image_info_window_state =
+            &mut *block_on(image_info_window_state_arc.lock().into_future());
         WindowOptions::show(
             &mut image_info_window_state.options,
             &mut image_info_window_state.data,

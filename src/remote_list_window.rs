@@ -62,7 +62,7 @@ impl WindowState {
         println!("{remote_image_list:#?}");
         // TODO testing
         let last_image = remote_image_list.last().unwrap().clone();
-        let is_in_remote = last_image.clone().get_remote_info(&mut client).await;
+        let is_in_remote = zot::get_remote_info(last_image.clone().id, &mut client).await; // TODO check refactor
         println!("is in remote: {is_in_remote:?}");
         let is_in_local = last_image.is_in_local().await;
         println!("is in local: {is_in_local:?}");
@@ -92,15 +92,15 @@ impl WindowState {
 }
 
 pub fn window_options() -> WindowOptions {
-    let max_window_size = egui::vec2(650.0, 225.0);
     let min_window_size = egui::vec2(600.0, 225.0);
     WindowOptions {
         id: Id::new("remote_list_window"),
         title: "Imágenes en Registro".to_owned(),
         closable: true,
         collapsible: true,
+        resizable: true,
         min_size: WindowSize::Fixed(min_window_size),
-        max_size: WindowSize::Fixed(max_window_size),
+        //max_size: WindowSize::Fixed(max_window_size),
         ..Default::default()
     }
 }

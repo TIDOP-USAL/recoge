@@ -375,43 +375,41 @@ pub struct RemoteImageInfo {
     pub image_info: Option<container::Image>,
 }
 
-impl container::Image {
-    pub async fn get_remote_info(self, client: &mut Client) -> Result<RemoteImageInfo> {
-        println!("checking on remote: {self:#?}");
-        let mut image_name = self.get_image_name();
-        // Strip domain from repo name
-        let mut parts = image_name.split('/');
-        let part_count = parts.clone().collect::<Vec<_>>().len();
+pub async fn get_remote_info(image_name: String, client: &mut Client) -> Result<RemoteImageInfo> {
+    println!("checking on remote: {image_name:#?}");
+    let mut image_name = image_name;
+    // Strip domain from repo name
+    let mut parts = image_name.split('/');
+    let part_count = parts.clone().collect::<Vec<_>>().len();
 
-        if part_count > 1
-            && let Some(first) = parts.next()
-        {
-            // Is domain (crude)
-            if first.contains(".") || first.contains("localhost") {
-                let mut remainder = String::new();
-                for part in parts {
-                    remainder += &format!("{part}/");
-                }
-                remainder.pop(); // remove trailing '/'
-                image_name = remainder;
+    if part_count > 1
+        && let Some(first) = parts.next()
+    {
+        // Is domain (crude)
+        if first.contains(".") || first.contains("localhost") {
+            let mut remainder = String::new();
+            for part in parts {
+                remainder += &format!("{part}/");
             }
+            remainder.pop(); // remove trailing '/'
+            image_name = remainder;
         }
-        println!("parsed name: {image_name:?}");
+    }
+    println!("parsed name: {image_name:?}");
 
-        match client.get_image_info(image_name).await {
-            Ok(x) => Ok(RemoteImageInfo {
-                is_in_remote: true,
-                image_info: Some(x),
-            }),
-            Err(x) => {
-                if x.is_not_found() {
-                    Ok(RemoteImageInfo {
-                        is_in_remote: false,
-                        ..Default::default()
-                    })
-                } else {
-                    Err(x)
-                }
+    match client.get_image_info(image_name).await {
+        Ok(x) => Ok(RemoteImageInfo {
+            is_in_remote: true,
+            image_info: Some(x),
+        }),
+        Err(x) => {
+            if x.is_not_found() {
+                Ok(RemoteImageInfo {
+                    is_in_remote: false,
+                    ..Default::default()
+                })
+            } else {
+                Err(x)
             }
         }
     }
