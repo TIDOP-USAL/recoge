@@ -75,6 +75,7 @@ impl WindowState {
         let mut data = WindowData::default();
         data.main_list_reload_flag = main_list_reload_flag;
         data.app_config = app_config;
+        remote_image_list.reverse();
         data.remote_image_list = remote_image_list;
         //data.toasts_arc = toasts;
         window_state.data = data;
@@ -110,7 +111,7 @@ pub struct WindowData {
     pub app_config: AppConfig,
     pub remote_image_list: Vec<container::Image>,
     pub toasts_arc: Arc<AsyncMutex<Toasts>>,
-    date_rev: bool,
+    image_table_options: ImageTableOptions,
     pull_modal_data: Option<ModalData>,
 }
 
@@ -121,7 +122,11 @@ impl Default for WindowData {
             app_config: AppConfig::default(),
             remote_image_list: Vec::new(),
             toasts_arc: Arc::new(AsyncMutex::new(Toasts::default())),
-            date_rev: true,
+            image_table_options: ImageTableOptions {
+                sort_type: TableSortType::Date,
+                ui_date_rev: true,
+                ui_name_rev: false,
+            },
             pull_modal_data: None,
         }
     }
@@ -143,6 +148,19 @@ impl PullProgress {
     fn can_start(&self) -> bool {
         *self != Self::Ok && *self != Self::InProgress
     }
+}
+#[derive(Debug, Clone)]
+pub struct ImageTableOptions {
+    sort_type: TableSortType,
+    ui_date_rev: bool, // 0: ASC
+    ui_name_rev: bool, // 0: A-Z
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum TableSortType {
+    None,
+    Date,
+    Name,
 }
 
 pub struct ModalData {
@@ -178,9 +196,9 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
         app_config,
         remote_image_list,
         toasts_arc: _,
-        date_rev,
+        image_table_options,
         pull_modal_data,
-    } = data;
+    } = &mut *data;
 
     let Some(main_list_reload_flag) = main_list_reload_flag else {
         eprintln!("Window opened without main_list_reload_flag");
@@ -194,8 +212,8 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
     ui.group(|ui| {
         table_ui(
             ui,
-            date_rev,
-            remote_image_list.to_vec(),
+            image_table_options,
+            remote_image_list,
             &app_config,
             pull_modal_data,
         );
@@ -220,12 +238,15 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
 
 fn table_ui(
     ui: &mut egui::Ui,
-    date_rev: &mut bool,
-    images: Vec<container::Image>,
+    image_table_options: &mut ImageTableOptions,
+    images: &mut Vec<container::Image>,
     config: &AppConfig,
     pull_modal_data: &mut Option<ModalData>,
 ) -> egui::scroll_area::ScrollAreaOutput<()> {
     let available_height = ui.available_height();
+    let date_rev = image_table_options.ui_date_rev.clone();
+    let name_rev = image_table_options.ui_name_rev.clone();
+    let sort_type = image_table_options.sort_type.clone();
     let table = TableBuilder::new(ui)
         .striped(true)
         .resizable(true)
@@ -244,7 +265,20 @@ fn table_ui(
         .max_scroll_height(available_height)
         .header(20.0, |mut header| {
             header.col(|ui| {
-                ui.strong("Nombre/Tag");
+                ui.horizontal(|ui| {
+                    ui.strong("Nombre/Tag");
+                    let btn = ui
+                        .button(if name_rev { "⬇" } else { "⬆" })
+                        .on_hover_text(if name_rev { "A-Z" } else { "Z-A" });
+                    if sort_type == TableSortType::Name {
+                        btn.clone().highlight();
+                    }
+                    if btn.clicked() {
+                        image_table_options.ui_name_rev ^= true;
+                        image_table_options.sort_type = TableSortType::Name;
+                        sort_table(image_table_options.clone(), images);
+                    }
+                });
             });
             header.col(|ui| {
                 ui.strong("Tamaño*").on_hover_text(
@@ -255,34 +289,36 @@ fn table_ui(
                 ui.strong("ID local");
             });
             header.col(|ui| {
-                egui::Sides::new().show(
-                    ui,
-                    |ui| {
-                        ui.strong("Fecha de subida");
-                    },
-                    |ui| {
-                        *date_rev ^= ui
-                            .button(if *date_rev { "⬆" } else { "⬇" })
-                            .on_hover_text(if *date_rev {
-                                "Ascendente"
-                            } else {
+                ui.horizontal(|ui| {
+                    ui.strong("Fecha de subida");
+                    let btn =
+                        ui.button(if date_rev { "⬇" } else { "⬆" })
+                            .on_hover_text(if date_rev {
                                 "Descendente"
-                            })
-                            .clicked();
-                    },
-                );
+                            } else {
+                                "Ascendente"
+                            });
+                    if sort_type == TableSortType::Date {
+                        btn.clone().highlight();
+                    }
+                    if btn.clicked() {
+                        image_table_options.ui_date_rev ^= true;
+                        image_table_options.sort_type = TableSortType::Date;
+                        sort_table(image_table_options.clone(), images);
+                    }
+                });
             });
         })
         .body(|mut body| {
-            if *date_rev {
+            /*if date_rev {
                 for image in images.iter().rev() {
                     image_table_row(image, &mut body, &config, pull_modal_data);
                 }
-            } else {
-                for image in images.iter() {
-                    image_table_row(image, &mut body, &config, pull_modal_data);
-                }
+            } else {*/
+            for image in images.iter() {
+                image_table_row(image, &mut body, &config, pull_modal_data);
             }
+            //}
         });
     table
 }
@@ -338,6 +374,25 @@ fn image_table_row(
             ));
         });
     });
+}
+
+fn sort_table(options: ImageTableOptions, list: &mut Vec<container::Image>) {
+    println!("Sorting image table: {options:#?}");
+    match options.sort_type {
+        TableSortType::None => {}
+        TableSortType::Date => {
+            list.sort_by_key(|x| x.date); // Newest image first
+            if options.ui_date_rev {
+                list.reverse();
+            }
+        }
+        TableSortType::Name => {
+            list.sort_by_key(|x| x.repository_info.as_ref().unwrap().repository.clone());
+            if !options.ui_name_rev {
+                list.reverse();
+            }
+        }
+    }
 }
 
 impl ModalData {
