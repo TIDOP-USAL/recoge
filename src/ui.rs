@@ -43,8 +43,19 @@ pub fn ui_start() -> eframe::Result {
     )
 }
 
-pub struct ImageTableData {
-    date_reversed: bool,
+#[derive(Debug, Clone)]
+pub struct ImageTableOptions {
+    search_field: Option<String>, // None: disabled
+    sort_type: TableSortType,
+    ui_date_rev: bool, // 0: ASC
+    ui_name_rev: bool, // 0: A-Z
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum TableSortType {
+    None,
+    Date,
+    Name,
 }
 
 #[derive(PartialEq, Clone)]
@@ -76,12 +87,12 @@ pub struct MyApp {
     image_list: Arc<Mutex<Vec<Image>>>,
     image_list_load_state: Arc<Mutex<LoadState>>,
     image_list_should_reload: Arc<Mutex<bool>>,
+    image_table_options: ImageTableOptions,
     tasks: Task<()>,
     upload_window_state: Arc<Mutex<upload_window::WindowState>>,
     image_info_window_state: Arc<AsyncMutex<image_info_window::WindowState>>,
     remote_list_window_state: Arc<AsyncMutex<remote_list_window::WindowState>>,
     config_window_state: Arc<Mutex<config_window::WindowState>>,
-    image_table_data: ImageTableData,
 }
 
 impl MyApp {
@@ -106,8 +117,10 @@ impl MyApp {
             if global_data.config.is_missing_credentials() {
                 let mut toasts = toasts_arc.lock().await;
                 toasts
-                    .warning("No se ha configurado el usuario del Registro")
-                    .duration(std::time::Duration::from_secs(5));
+                    .warning(
+                        "No se ha configurado el usuario del Registro. Entra en la configuración ⚙",
+                    )
+                    .duration(std::time::Duration::from_secs(20));
                 println!("Config is missing credentials");
             }
         });
@@ -140,6 +153,7 @@ impl MyApp {
             // TODO collection groups
             image_list.append(&mut images);
             image_list.sort_by_key(|x| x.date); // Oldest image first
+            image_list.reverse();
             *image_list_load_state_arc.lock().unwrap() = LoadState::Loaded;
         });
     }
@@ -149,10 +163,10 @@ impl MyApp {
         let image_info_window_state_arc = Arc::clone(&self.image_info_window_state);
         let main_list_reload_flag_arc = Arc::clone(&self.image_list_should_reload);
         let toasts_arc = Arc::clone(&self.toasts);
-	
+
         self.tasks.fire_async(async move {
             let mut image_info_window_state = image_info_window_state_arc.lock().await;
-	    image_info_window_state.options.data_is_loading = true;
+            image_info_window_state.options.data_is_loading = true;
             let arc = Arc::clone(&image_info_window_state.data);
             let mut data = block_on(arc.lock());
             data.init(config, toasts_arc, main_list_reload_flag_arc)
@@ -219,9 +233,15 @@ impl Default for MyApp {
             toasts: Arc::new(AsyncMutex::new(
                 Toasts::default().with_anchor(egui_notify::Anchor::BottomRight),
             )),
-            image_list: Arc::new(Mutex::new(image_list)),
+            image_list: Arc::new(Mutex::new(image_list.clone())),
             image_list_load_state: Arc::new(Mutex::new(LoadState::NotLoaded)),
             image_list_should_reload: Arc::new(Mutex::new(false)),
+            image_table_options: ImageTableOptions {
+                search_field: None,
+                sort_type: TableSortType::Date,
+                ui_date_rev: true,
+                ui_name_rev: false,
+            },
             tasks: Task::new(),
             upload_window_state: Arc::new(Mutex::new(upload_window::WindowState::default())),
             config_window_state: Arc::new(Mutex::new(config_window::WindowState::default())),
@@ -231,9 +251,6 @@ impl Default for MyApp {
             image_info_window_state: Arc::new(AsyncMutex::new(
                 image_info_window::WindowState::default(),
             )),
-            image_table_data: ImageTableData {
-                date_reversed: true,
-            },
         }
     }
 }
@@ -368,10 +385,40 @@ impl eframe::App for MyApp {
                 self.update_list();
             }
 
-            ui.label("Imágenes locales:".to_string());
+            ui.horizontal(|ui| {
+                ui.label("Imágenes locales:".to_string());
+                let mut focus = false;
+                if ui
+                    .button("🔍")
+                    .on_hover_text("Filtrar por nombre")
+                    .clicked()
+                {
+                    if self.image_table_options.search_field.is_none() {
+                        self.image_table_options.search_field = Some(String::new());
+                        focus = true;
+                    } else {
+                        self.image_table_options.search_field = None;
+                    }
+                };
+                if self.image_table_options.search_field.is_some() {
+                    let filter = ui
+                        .text_edit_singleline(
+                            self.image_table_options.search_field.as_mut().unwrap(),
+                        )
+                        .on_hover_text("Nombre de registro y tag para filtrar");
+                    if focus {
+                        filter.request_focus();
+                    }
+                    /*if filter.changed() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    self.sort_table();
+                    }*/
+                }
+            });
             ui.add_space(10.0);
             ui.separator();
-            let date_rev = &mut self.image_table_data.date_reversed;
+            let date_rev = self.image_table_options.ui_date_rev.clone();
+            let name_rev = self.image_table_options.ui_name_rev.clone();
+            let sort_type = self.image_table_options.sort_type.clone();
             let available_height = ui.available_height();
 
             let _table = TableBuilder::new(ui)
@@ -391,7 +438,20 @@ impl eframe::App for MyApp {
                 .max_scroll_height(available_height)
                 .header(21.0, |mut header| {
                     header.col(|ui| {
-                        ui.strong("Nombre/Tag");
+                        ui.horizontal(|ui| {
+                            ui.strong("Nombre/Tag");
+                            let btn = ui
+                                .button(if name_rev { "⬇" } else { "⬆" })
+                                .on_hover_text(if name_rev { "A-Z" } else { "Z-A" });
+                            if sort_type == TableSortType::Name {
+                                btn.clone().highlight();
+                            }
+                            if btn.clicked() {
+                                self.image_table_options.ui_name_rev ^= true;
+                                self.image_table_options.sort_type = TableSortType::Name;
+                                self.sort_table();
+                            }
+                        });
                     });
                     header.col(|ui| {
                         ui.strong("Tamaño");
@@ -400,47 +460,42 @@ impl eframe::App for MyApp {
                         ui.strong("ID local");
                     });
                     header.col(|ui| {
-                        egui::Sides::new().show(
-                            ui,
-                            |ui| {
-                                ui.strong("Fecha de creación");
-                            },
-                            |ui| {
-                                *date_rev ^= ui
-                                    .button(if *date_rev { "⬆" } else { "⬇" })
-                                    .on_hover_text(if *date_rev {
-                                        "Ascendente"
-                                    } else {
-                                        "Descendente"
-                                    })
-                                    .clicked();
-                            },
-                        );
+                        ui.horizontal(|ui| {
+                            ui.strong("Fecha de creación");
+                            let btn = ui.button(if date_rev { "⬇" } else { "⬆" }).on_hover_text(
+                                if date_rev {
+                                    "Descendente"
+                                } else {
+                                    "Ascendente"
+                                },
+                            );
+                            if sort_type == TableSortType::Date {
+                                btn.clone().highlight();
+                            }
+                            if btn.clicked() {
+                                self.image_table_options.ui_date_rev ^= true;
+                                self.image_table_options.sort_type = TableSortType::Date;
+                                self.sort_table();
+                            }
+                        });
                     });
                 })
                 .body(|mut body| {
                     let image_list: Vec<Image> = self.image_list.lock().unwrap().to_vec();
-                    let date_rev = self.image_table_data.date_reversed;
-                    if date_rev {
-                        for image in image_list.iter().rev() {
-                            self.image_table_row(
-                                &global_data.config,
-                                image,
-                                &mut body,
-                                upload_window_state,
-                                image_info_window_state,
-                            );
+                    for image in image_list.iter() {
+                        // TODO global filtered list
+                        if let Some(search_filter) = self.image_table_options.search_field.clone() {
+                            if !image.get_image_name().contains(&search_filter) {
+                                continue;
+                            }
                         }
-                    } else {
-                        for image in image_list.iter() {
-                            self.image_table_row(
-                                &global_data.config,
-                                image,
-                                &mut body,
-                                upload_window_state,
-                                image_info_window_state,
-                            );
-                        }
+                        self.image_table_row(
+                            &global_data.config,
+                            image,
+                            &mut body,
+                            upload_window_state,
+                            image_info_window_state,
+                        );
                     }
                 });
         });
@@ -486,8 +541,8 @@ impl MyApp {
                         if !image_info_window_state.options.data_is_loading {
                             println!("Info de {image_name}");
 
-                            self.inspect_image(image.clone(), config.clone());
                             image_info_window_state.options.data_is_loading = true;
+                            self.inspect_image(image.clone(), config.clone());
                         }
                     }
                 });
@@ -511,5 +566,27 @@ impl MyApp {
 
             //self.toggle_row_selection(row_index, &row.response());
         });
+    }
+
+    fn sort_table(&mut self) {
+        let options = self.image_table_options.clone();
+        println!("Sorting image table: {options:#?}");
+        match options.sort_type {
+            TableSortType::None => {}
+            TableSortType::Date => {
+                let mut image_list = self.image_list.lock().unwrap();
+                image_list.sort_by_key(|x| x.date); // Oldest image first
+                if options.ui_date_rev {
+                    image_list.reverse();
+                }
+            }
+            TableSortType::Name => {
+                let mut image_list = self.image_list.lock().unwrap();
+                image_list.sort_by_key(|x| x.repository_info.as_ref().unwrap().repository.clone());
+                if !options.ui_name_rev {
+                    image_list.reverse();
+                }
+            }
+        }
     }
 }
