@@ -505,71 +505,77 @@ impl Client {
         // should exist
         local_image: RepositoryInfo,
         // will be created/tagged if necessary
-        remote_image: RepositoryInfo,
+        remote_images: Vec<RepositoryInfo>,
         reg_creds: (String, String),
         tx: Arc<Mutex<SyncSender<bollard::config::PushImageInfo>>>,
     ) -> Result<()> {
         let docker = &self.client;
         println!("Pushing image...");
         let local_image_name = local_image.get_image();
-        let remote_image_name = remote_image.get_image();
-        if local_image_name != remote_image_name {
-            // Needs to be tagged before pushing
-            if let Err(x) = self
-                .image_add_tag(local_image_name.clone(), remote_image_name.clone())
-                .await
-            {
-                println!("Can't retag before pushing: {x:?}");
-                return Err(x);
-            };
-        }
-        println!("Pushing {local_image_name} as {remote_image_name}");
+        let mut remote_images = remote_images;
+        remote_images.sort();
+        remote_images.dedup();
+        for remote_image in remote_images {
+            let remote_image_name = remote_image.get_image();
+            if local_image_name != remote_image_name {
+                // Needs to be tagged before pushing
+                if let Err(x) = self
+                    .image_add_tag(local_image_name.clone(), remote_image_name.clone())
+                    .await
+                {
+                    println!("Can't retag before pushing: {x:?}");
+                    return Err(x);
+                };
+            }
+            println!("Pushing {local_image_name} as {remote_image_name}");
 
-        let options = bollard::query_parameters::PushImageOptionsBuilder::default()
-            .tag(&remote_image.tag)
-            .build();
-        println!("options: {options:#?}");
-        let credentials = bollard::auth::DockerCredentials {
-            username: Some(reg_creds.0.to_string()),
-            password: Some(reg_creds.1.to_string()),
-            ..Default::default()
-        };
-        println!("using {credentials:#?}");
-        let mut a = docker.push_image(&remote_image.repository, Some(options), Some(credentials));
-        while let Some(state) = a.next().await {
-            //println!("{state:?}");
-            let tx = tx.lock().unwrap();
-            match state {
-                Ok(info) => {
-                    // TODO send timestamp?
-                    match tx.send(info) {
-                        Err(x) => {
-                            println!("e: {:#?}", x.0);
+            let options = bollard::query_parameters::PushImageOptionsBuilder::default()
+                .tag(&remote_image.tag)
+                .build();
+            println!("options: {options:#?}");
+            let credentials = bollard::auth::DockerCredentials {
+                username: Some(reg_creds.0.to_string()),
+                password: Some(reg_creds.1.to_string()),
+                ..Default::default()
+            };
+            println!("using {credentials:#?}");
+            let mut a =
+                docker.push_image(&remote_image.repository, Some(options), Some(credentials));
+            while let Some(state) = a.next().await {
+                //println!("{state:?}");
+                let tx = tx.lock().unwrap();
+                match state {
+                    Ok(info) => {
+                        // TODO send timestamp?
+                        match tx.send(info) {
+                            Err(x) => {
+                                println!("e: {:#?}", x.0);
+                            }
+                            Ok(_x) => (),
                         }
-                        Ok(_x) => (),
                     }
-                }
-                Err(x) => {
-                    println!("Push error {x:?}");
-                    let error_detail = Some(bollard::config::ErrorDetail {
-                        code: None,
-                        message: format!("{x:?}").into(),
-                    });
-                    let error = bollard::config::PushImageInfo {
-                        error_detail,
-                        ..Default::default()
-                    };
-                    match tx.send(error) {
-                        Err(x) => {
-                            println!("e: {:#?}", x.0);
+                    Err(x) => {
+                        println!("Push error {x:?}");
+                        let error_detail = Some(bollard::config::ErrorDetail {
+                            code: None,
+                            message: format!("{x:?}").into(),
+                        });
+                        let error = bollard::config::PushImageInfo {
+                            error_detail,
+                            ..Default::default()
+                        };
+                        match tx.send(error) {
+                            Err(x) => {
+                                println!("e: {:#?}", x.0);
+                            }
+                            Ok(_x) => (),
                         }
-                        Ok(_x) => (),
+                        return Err(Error::Program(format!("{x:?}")));
                     }
-                    return Err(Error::Program(format!("{x:?}")));
                 }
             }
+            println!("Push OK: {remote_image_name}");
         }
-        println!("Push OK: {remote_image_name}");
         Ok(())
     }
 

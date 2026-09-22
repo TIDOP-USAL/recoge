@@ -58,6 +58,8 @@ pub struct ImageInfo {
     pub new_repository_name: String,
     // User-modified
     pub new_tag: String,
+    // User-modified
+    pub ui_push_as_latest: bool,
 }
 
 impl ImageInfo {
@@ -142,6 +144,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             stripped_repo: stripped_repo.clone(),
             new_repository_name: stripped_repo,
             new_tag: selected_image_info.tag.clone(),
+            ui_push_as_latest: false,
         });
     }
     let Some(edit_info) = edit_info else {
@@ -203,11 +206,32 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
                             ui.label("Versión de la imagen");
                         });
                     }
+                    // TODO block special characters
                 }
             });
             ui.end_row();
+            ui.label("Es la última versión:");
+            ui.checkbox(
+                &mut edit_info.ui_push_as_latest,
+                "Subir también como latest",
+            )
+            .on_hover_text("Se subirá una copia adicional de la imagen con el tag \"latest\"");
+            ui.end_row();
             ui.label("Se subirá como:");
-            ui.code(edit_info.get_new_name());
+            ui.vertical(|ui| {
+                let new_name = edit_info.get_new_name();
+                ui.code(&new_name);
+                if edit_info.ui_push_as_latest {
+                    let latest_name = format!(
+                        "{}/{}:latest",
+                        edit_info.remote_repo_prefix, edit_info.new_repository_name
+                    );
+                    if latest_name != new_name {
+                        ui.add_space(5.0);
+                        ui.code(latest_name);
+                    }
+                }
+            });
         });
     ui.add_space(20.0);
 
@@ -258,6 +282,13 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
                 };
                 let local_image_info = selected_image_info.clone();
                 let remote_image_info = edit_info.get_new_remote_repo_info();
+                let mut remote_images = Vec::new();
+                remote_images.push(remote_image_info.clone());
+                if edit_info.ui_push_as_latest {
+                    let mut remote_image_latest = remote_image_info.clone();
+                    remote_image_latest.tag = "latest".to_string();
+                    remote_images.push(remote_image_latest);
+                }
                 let creds = zot_client.get_credentials();
 
                 *push_info.progress.lock().unwrap() = PushProgress::InProgress;
@@ -271,7 +302,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
                     };
 
                     *progress_arc.lock().unwrap() = match docker
-                        .push_image(local_image_info, remote_image_info, creds, tx_arc)
+                        .push_image(local_image_info, remote_images, creds, tx_arc)
                         .await
                     {
                         Ok(_) => {
@@ -317,7 +348,9 @@ impl PushInfo {
             })
             .body(|mut body| {
                 for msg in self.table_rows.iter().rev() {
-                    let status = msg.status.clone().unwrap_or(String::new());
+                    let Some(status) = msg.status.clone() else {
+                        continue;
+                    };
                     let mut progress_str = String::new();
                     match &msg.progress_detail {
                         Some(detail) => {
