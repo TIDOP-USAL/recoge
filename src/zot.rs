@@ -134,6 +134,7 @@ impl Client {
       NewestImage {
         Digest
         Tag
+        LastUpdated
       }
     }
   }
@@ -292,7 +293,7 @@ pub struct RepoListWithNewestImage {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RepoListImage {
     pub Name: String,
-    pub LastUpdated: DateTime<Utc>,
+    pub LastUpdated: DateTime<Utc>, // Warning! This updates when zot restarts
     #[serde(deserialize_with = "deserialize_number_from_string")]
     pub Size: i64,
     pub NewestImage: ImageTags,
@@ -303,6 +304,7 @@ pub struct RepoListImage {
 pub struct ImageTags {
     pub Digest: String,
     pub Tag: String,
+    pub LastUpdated: DateTime<Utc>, // Actual last update
 }
 
 impl TryFrom<&RepoListImage> for container::Image {
@@ -319,7 +321,7 @@ impl TryFrom<&RepoListImage> for container::Image {
             size_bytes: Some(image.Size),
             id: image.NewestImage.Digest.clone(),
             digests: vec![image.NewestImage.Digest.clone()],
-            date: image.LastUpdated,
+            date: image.NewestImage.LastUpdated,
         })
     }
 }
