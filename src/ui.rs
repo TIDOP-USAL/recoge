@@ -388,11 +388,11 @@ impl eframe::App for MyApp {
             ui.horizontal(|ui| {
                 ui.label("Imágenes locales:".to_string());
                 let mut focus = false;
-                if ui
-                    .button("🔍")
-                    .on_hover_text("Filtrar por nombre")
-                    .clicked()
-                {
+                let search_btn = ui.button("🔍").on_hover_text("Filtrar por nombre");
+                if self.image_table_options.search_field.is_some() {
+                    search_btn.clone().highlight();
+                }
+                if search_btn.clicked() {
                     if self.image_table_options.search_field.is_none() {
                         self.image_table_options.search_field = Some(String::new());
                         focus = true;

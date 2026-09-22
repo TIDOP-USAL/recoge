@@ -192,6 +192,11 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
                 let tag = TextEdit::singleline(&mut edit_info.new_tag)
                     .hint_text("latest")
                     .show(ui);
+                if (repo.response.changed() || tag.response.changed())
+                    && *push_info.progress.lock().unwrap() != PushProgress::InProgress
+                {
+                    *push_info.progress.lock().unwrap() = PushProgress::NotStarted;
+                }
 
                 let hover_pos = ui.pointer_hover_pos();
                 if let Some(hover_pos) = hover_pos {

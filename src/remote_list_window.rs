@@ -188,7 +188,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
         return;
     };
 
-    ui.label("Imágenes remotas:");
+    ui.label("Imágenes remotas (sólo última versión):");
     ui.add_space(10.0);
 
     ui.group(|ui| {
@@ -375,7 +375,13 @@ impl ModalData {
                         "La imagen se descargará también sin el dominio del Registro"
                     ));
                     ui.horizontal(|ui| {
-                        ui.checkbox(&mut self.save_without_prefix, "Copiar como");
+                        if ui
+                            .checkbox(&mut self.save_without_prefix, "Copiar como")
+                            .changed()
+                            && *self.pull_progress.lock().unwrap() != PullProgress::InProgress
+                        {
+                            *self.pull_progress.lock().unwrap() = PullProgress::NotStarted;
+                        };
                         ui.code(image_name);
                     });
                 });
