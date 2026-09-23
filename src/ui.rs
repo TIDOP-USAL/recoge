@@ -365,7 +365,8 @@ impl eframe::App for MyApp {
 
             ui.horizontal(|ui| match *self.image_list_load_state.lock().unwrap() {
                 LoadState::Loaded => {
-                    ui.label("Lista cargada");
+		    let image_count = self.image_list.lock().unwrap().len();
+                    ui.label(format!("Lista cargada ({image_count})"));
                 }
                 LoadState::Loading => {
                     ui.label("Cargando lista ");

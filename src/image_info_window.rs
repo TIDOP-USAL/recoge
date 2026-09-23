@@ -407,6 +407,26 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                 if ui.button("📋").on_hover_text("Copiar nombre").clicked() {
                     ui.ctx().copy_text(selected_image_name.clone());
                 }
+		if ui
+                    .button("🗑")
+                    .on_hover_text(format!("Eliminar la imagen {selected_image_name}"))
+                    .clicked()
+                {
+                    println!("delete_modal for: {selected_image_name}");
+                    // TODO use image_collection, add selector to modal
+                    let mut data = block_on(data_arc_2.lock());
+                    let WindowData {
+                        global_config: _,
+                        toasts_arc: _,
+                        main_list_reload_flag: _,
+                        image_data,
+                        data_is_reloading: _,
+                    } = &mut *data;
+                    image_data.as_mut().unwrap().delete_modal_data =
+                        Some(ModalData::new(selected_image_name.clone()));
+                    drop(data);
+                }
+		
                 ui.add_sized(ui.available_size(), egui::Label::new("")); // fill grid
             });
             ui.end_row();
@@ -481,10 +501,11 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
             ui.end_row();
         });
     ui.separator();
+    ui.add_space(2.0);
 
     egui::Grid::new("image_rows_grid_2")
         .num_columns(2)
-        .spacing([20.0, 5.0])
+        .spacing([20.0, 8.0])
         .striped(false)
         .show(ui, |ui| {
             ui.label("Está en local:");
@@ -556,49 +577,6 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
             }
         });
 
-    ui.separator();
-
-    if let Some(is_local) = image_in_local
-        && is_local
-    {
-        egui::Grid::new("image_rows_grid_3")
-            .num_columns(2)
-            .spacing([20.0, 10.0])
-            .striped(false)
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("Acciones locales: ");
-                    if ui
-                        .button("🗑")
-                        .on_hover_text(format!("Eliminar la imagen {selected_image_name}"))
-                        .clicked()
-                    {
-                        println!("delete_modal for: {selected_image_name}");
-                        // TODO use image_collection, add selector to modal
-                        let mut data = block_on(data_arc_2.lock());
-                        let WindowData {
-                            global_config: _,
-                            toasts_arc: _,
-                            main_list_reload_flag: _,
-                            image_data,
-                            data_is_reloading: _,
-                        } = &mut *data;
-                        image_data.as_mut().unwrap().delete_modal_data =
-                            Some(ModalData::new(selected_image_name.clone()));
-                        drop(data);
-                    }
-                    /*if ui
-                        .button("⬆")
-                        .on_hover_text(format!("Subir a registro {selected_image_name}"))
-                        .clicked()
-                        {
-                        println!("Eliminar {}", image_collection.get_id_value());
-                    }*/
-                });
-                ui.end_row();
-            });
-    }
-
     let mut data = block_on(data_arc_3.lock());
     let WindowData {
         global_config: _,
@@ -625,6 +603,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
             }
         }
     }
+    ui.add_space(4.0);
 }
 
 #[derive(PartialEq, Clone)]
