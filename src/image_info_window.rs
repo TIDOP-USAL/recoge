@@ -332,6 +332,29 @@ impl WindowData {
         //self.open(data);
         return Ok(self.clone());
     }
+
+    // Swap a local image's info (reload)
+    pub async fn swap_image_info(&mut self, selected_image_name: String) -> Result<()> {
+        let Some(ref mut image_data) = self.image_data else {
+            return Err(Error::Program("Swap with no info".to_string()));
+        };
+        let Some(ref image_collection) = image_data.image_collection else {
+            return Err(Error::Program("Swap with no info".to_string()));
+        };
+        let selected_image_repo_info =
+            container::RepositoryInfo::try_from_repo_tag(selected_image_name.clone())?;
+        if !image_collection
+            .image_aliases
+            .contains(&selected_image_repo_info)
+        {
+            return Err(Error::Program(
+                "Tried to select image not in collection".to_string(),
+            ));
+        }
+        image_data.selected_image_name = selected_image_name;
+        self.data_is_reloading = false;
+        Ok(())
+    }
 }
 
 pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
@@ -412,30 +435,16 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                                 }
                                 if ui
                                     .button("ℹ")
-                                    .on_hover_text("Información de la imagen")
+                                    .on_hover_text("Información de esta imagen")
                                     .clicked()
                                 {
-                                    println!("Info de {image_name}");
-                                    let input = ImageInspectInput {
-                                        id: ImageInspectType::LocalNamed(image_name),
-                                        date: Some(image_collection.date),
-                                        size_bytes: image_collection.size_bytes,
-                                    };
-
-                                    // TODO non-blocking, cursor
-                                    //ui.set_cursor_icon(egui::CursorIcon::Wait);
-                                    //let mut data = block_on(data_arc_2.lock());
-                                    println!("Locked");
+                                    println!("Change dialog to {image_name}");
                                     let arc = Arc::clone(&data_arc_2);
                                     Task::new().fire_async(async move {
                                         let mut data = arc.lock().await;
                                         data.data_is_reloading = true;
-
-                                        let _r = data.load_image_info(input).await;
-                                        data.data_is_reloading = false;
-                                        //image_info_window_state.options.data_is_loading = true;
+                                        let _r = data.swap_image_info(image_name).await;
                                     });
-                                    //ui.set_cursor_icon(egui::CursorIcon::default());
                                 }
                             });
                             ui.end_row();
