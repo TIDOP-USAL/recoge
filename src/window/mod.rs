@@ -1,4 +1,9 @@
 #![allow(unused)]
+pub mod config_window;
+pub mod image_info_window;
+pub mod remote_list_window;
+pub mod upload_window;
+
 use crate::configuration::AppConfig;
 use crate::tasks::Task;
 use eframe::egui;

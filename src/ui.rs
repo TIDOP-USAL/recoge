@@ -1,10 +1,7 @@
-use crate::config_window;
 use crate::configuration as config;
 use crate::container;
-use crate::image_info_window;
-use crate::remote_list_window;
 use crate::tasks::Task;
-use crate::upload_window;
+use crate::window;
 use crate::window::WindowOptions;
 use config::AppConfig;
 use eframe::egui;
@@ -15,6 +12,10 @@ use egui_notify::Toasts;
 use futures::executor::block_on;
 use futures::lock::Mutex as AsyncMutex;
 use std::sync::{Arc, Mutex};
+use window::config_window;
+use window::image_info_window;
+use window::remote_list_window;
+use window::upload_window;
 
 use container::Image;
 
