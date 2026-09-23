@@ -4,6 +4,7 @@ use crate::tasks::Task;
 use crate::window;
 use crate::window::WindowOptions;
 use config::AppConfig;
+use container::Image;
 use eframe::egui;
 use egui::{Align, Layout, UiBuilder};
 use egui_extras::Column;
@@ -16,8 +17,6 @@ use window::config_window;
 use window::image_info_window;
 use window::remote_list_window;
 use window::upload_window;
-
-use container::Image;
 
 pub fn ui_start() -> eframe::Result {
     let mut options = eframe::NativeOptions {
@@ -335,15 +334,19 @@ impl eframe::App for MyApp {
                     .layout(Layout::right_to_left(Align::Min)),
             );
             if top_toolbar_ui
-                .button("⟲")
+                .button("⟲ Local")
                 .on_hover_text("Recargar lista de imágenes")
                 .clicked()
             {
                 *self.image_list_load_state.lock().unwrap() = LoadState::Loading;
                 self.update_list();
+		// Re-sort as default
+		self.image_table_options.sort_type = TableSortType::Date;
+		self.image_table_options.ui_date_rev = true;
+		self.image_table_options.ui_name_rev = false;
             }
             if top_toolbar_ui
-                .button("R")
+                .button("Registro")
                 .on_hover_text("Lista de imágenes remotas")
                 .clicked()
             {
@@ -411,9 +414,9 @@ impl eframe::App for MyApp {
                     if focus {
                         filter.request_focus();
                     }
-                    /*if filter.changed() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    self.sort_table();
-                    }*/
+                    if filter.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        self.image_table_options.search_field = None;
+                    }
                 }
             });
             ui.add_space(10.0);
