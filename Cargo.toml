@@ -37,3 +37,12 @@ futures = "0.3.34"
 [profile.release]
 lto = true
 strip = true
+
+[package.metadata.bundle]
+name = "recoge"
+identifier = "es.tidop.recoge"
+#icon = ["32x32.png", "128x128.png", "128x128@2x.png"]
+#resources = ["assets", "images/**/*.png", "secrets/public_key.txt"]
+category = "Developer Tool"
+short_description = "GEstor de REgistros de COntenedores."
+#osx_frameworks = ["SDL2"]
