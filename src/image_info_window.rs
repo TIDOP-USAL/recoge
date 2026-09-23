@@ -407,7 +407,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                 if ui.button("📋").on_hover_text("Copiar nombre").clicked() {
                     ui.ctx().copy_text(selected_image_name.clone());
                 }
-		if ui
+                if ui
                     .button("🗑")
                     .on_hover_text(format!("Eliminar la imagen {selected_image_name}"))
                     .clicked()
@@ -426,7 +426,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                         Some(ModalData::new(selected_image_name.clone()));
                     drop(data);
                 }
-		
+
                 ui.add_sized(ui.available_size(), egui::Label::new("")); // fill grid
             });
             ui.end_row();

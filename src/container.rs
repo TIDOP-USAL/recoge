@@ -506,6 +506,7 @@ impl Client {
         local_image: RepositoryInfo,
         // will be created/tagged if necessary
         remote_images: Vec<RepositoryInfo>,
+        clean_local: bool,
         reg_creds: (String, String),
         tx: Arc<Mutex<SyncSender<bollard::config::PushImageInfo>>>,
     ) -> Result<()> {
@@ -513,12 +514,14 @@ impl Client {
         println!("Pushing image...");
         let local_image_name = local_image.get_image();
         let mut remote_images = remote_images;
+        let mut new_local_image_names = Vec::new();
         remote_images.sort();
         remote_images.dedup();
         for remote_image in remote_images {
             let remote_image_name = remote_image.get_image();
             if local_image_name != remote_image_name {
                 // Needs to be tagged before pushing
+                new_local_image_names.push(remote_image_name.clone());
                 if let Err(x) = self
                     .image_add_tag(local_image_name.clone(), remote_image_name.clone())
                     .await
@@ -575,6 +578,13 @@ impl Client {
                 }
             }
             println!("Push OK: {remote_image_name}");
+        }
+        // Images were pushed
+        if clean_local {
+            // Remove new local images
+            for extra_image in new_local_image_names {
+                self.delete_image(extra_image, true, true).await?;
+            }
         }
         Ok(())
     }

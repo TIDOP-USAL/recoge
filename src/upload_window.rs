@@ -60,6 +60,8 @@ pub struct ImageInfo {
     pub new_tag: String,
     // User-modified
     pub ui_push_as_latest: bool,
+    // User-modified
+    pub ui_clean_local: bool,
 }
 
 impl ImageInfo {
@@ -145,6 +147,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             new_repository_name: stripped_repo,
             new_tag: selected_image_info.tag.clone(),
             ui_push_as_latest: false,
+            ui_clean_local: true,
         });
     }
     let Some(edit_info) = edit_info else {
@@ -222,6 +225,17 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             )
             .on_hover_text("Se subirá una copia adicional de la imagen con el tag \"latest\"");
             ui.end_row();
+            ui.label("Modo limpio:");
+            ui.checkbox(
+                &mut edit_info.ui_clean_local,
+                "No crear nuevos nombres en local",
+            )
+            .on_hover_text(
+                r#"No dejar nuevos nombres en local asociados al registro tras la subida.
+Durante la subida de imágenes, se crearán alias locales con el nombre del registro.
+Este modo elimina estas imágenes creadas para no ensuciar la lista local de imágenes."#,
+            );
+            ui.end_row();
             ui.label("Se subirá como:");
             ui.vertical(|ui| {
                 let new_name = edit_info.get_new_name();
@@ -237,6 +251,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
                     }
                 }
             });
+            ui.end_row();
         });
     ui.add_space(20.0);
 
@@ -295,6 +310,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
                     remote_images.push(remote_image_latest);
                 }
                 let creds = zot_client.get_credentials();
+                let ui_clean_local = edit_info.ui_clean_local;
 
                 *push_info.progress.lock().unwrap() = PushProgress::InProgress;
 
@@ -307,7 +323,13 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
                     };
 
                     *progress_arc.lock().unwrap() = match docker
-                        .push_image(local_image_info, remote_images, creds, tx_arc)
+                        .push_image(
+                            local_image_info,
+                            remote_images,
+                            ui_clean_local,
+                            creds,
+                            tx_arc,
+                        )
                         .await
                     {
                         Ok(_) => {
