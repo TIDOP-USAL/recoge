@@ -88,6 +88,7 @@ pub struct MyApp {
     image_list_load_state: Arc<Mutex<LoadState>>,
     image_list_should_reload: Arc<Mutex<bool>>,
     image_table_options: ImageTableOptions,
+    image_list_hovered_id: Option<String>,
     tasks: Task<()>,
     upload_window_state: Arc<Mutex<upload_window::WindowState>>,
     image_info_window_state: Arc<AsyncMutex<image_info_window::WindowState>>,
@@ -242,6 +243,7 @@ impl Default for MyApp {
                 ui_date_rev: true,
                 ui_name_rev: false,
             },
+            image_list_hovered_id: None,
             tasks: Task::new(),
             upload_window_state: Arc::new(Mutex::new(upload_window::WindowState::default())),
             config_window_state: Arc::new(Mutex::new(config_window::WindowState::default())),
@@ -340,13 +342,13 @@ impl eframe::App for MyApp {
             {
                 *self.image_list_load_state.lock().unwrap() = LoadState::Loading;
                 self.update_list();
-		// Re-sort as default
-		self.image_table_options.sort_type = TableSortType::Date;
-		self.image_table_options.ui_date_rev = true;
-		self.image_table_options.ui_name_rev = false;
+                // Re-sort as default
+                self.image_table_options.sort_type = TableSortType::Date;
+                self.image_table_options.ui_date_rev = true;
+                self.image_table_options.ui_name_rev = false;
             }
             if top_toolbar_ui
-                .button("Registro")
+                .button("🔍 Registro")
                 .on_hover_text("Lista de imágenes remotas")
                 .clicked()
             {
@@ -426,7 +428,8 @@ impl eframe::App for MyApp {
             let sort_type = self.image_table_options.sort_type.clone();
             let available_height = ui.available_height();
 
-            let _table = TableBuilder::new(ui)
+            let mut table_ui = ui.new_child(UiBuilder::new());
+            let _table = TableBuilder::new(&mut table_ui)
                 .striped(true)
                 .resizable(true)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
@@ -503,6 +506,9 @@ impl eframe::App for MyApp {
                         );
                     }
                 });
+            if !table_ui.response().contains_pointer() && self.image_list_hovered_id.is_some() {
+                self.image_list_hovered_id = None;
+            }
         });
     }
 }
@@ -523,8 +529,20 @@ impl MyApp {
                 if !image_name.contains(':') {
                     image_name.push_str(" (Sin nombre)");
                 }
-                ui.label(image_name.to_string())
-                    .on_hover_text(image_name.clone());
+                let label = egui::Label::new(image_name.to_string());
+                let rect = ui.add(label).on_hover_text(image_name.clone()).rect;
+                if let Some(hid) = &self.image_list_hovered_id
+                    && *hid == image.id
+                {
+                    let color = egui::Color32::from_rgb(165, 238, 0);
+                    ui.debug_painter().rect(
+                        rect,
+                        0.0,
+                        egui::Color32::TRANSPARENT,
+                        (1.0, color),
+                        egui::StrokeKind::Outside,
+                    );
+                }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
                     if ui.button("⬆").on_hover_text("Subir a Registro").clicked() {
@@ -557,8 +575,13 @@ impl MyApp {
             });
             row.col(|ui| {
                 //ui.add(egui::Separator::default().horizontal());
-                ui.label(image.get_short_id())
-                    .on_hover_text(image.id.clone());
+                if ui
+                    .label(image.get_short_id())
+                    .on_hover_text(image.id.clone())
+                    .hovered()
+                {
+                    self.image_list_hovered_id = Some(image.id.clone());
+                }
             });
             row.col(|ui| {
                 ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
@@ -568,7 +591,6 @@ impl MyApp {
                     image.get_date_local()
                 ));
             });
-
             //self.toggle_row_selection(row_index, &row.response());
         });
     }
