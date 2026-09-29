@@ -16,6 +16,7 @@ pub fn table_ui(
     images: &mut Vec<container::Image>,
     config: &AppConfig,
     pull_modal_data: &mut Option<PullModalData>,
+    delete_modal_data: &mut Option<DeleteModalData>,
 ) -> egui::scroll_area::ScrollAreaOutput<()> {
     let available_height = ui.available_height();
     let date_rev = image_table_options.ui_date_rev.clone();
@@ -101,7 +102,8 @@ fn image_table_row(
     image: &container::Image,
     body: &mut egui_extras::TableBody,
     config: &AppConfig,
-    pull_modal_data: &mut Option<ModalData>,
+    pull_modal_data: &mut Option<PullModalData>,
+    delete_modal_data: &mut Option<DeleteModalData>,
 ) {
     let row_height = 18.0;
     body.row(row_height, |mut row| {
@@ -123,6 +125,13 @@ fn image_table_row(
                     //println!("{image:#?}");
                     *pull_modal_data = Some(PullModalData::new(image.clone(), config.clone()));
                 }
+                if ui
+                    .button("🗑")
+                    .on_hover_text(format!("Eliminar la imagen {image_name}"))
+                    .clicked()
+                {
+                    println!("Delete modal for: {image_name}");
+                    *delete_modal_data = Some(DeleteModalData::new(image_name, config.clone()));
                 }
                 /*if ui
                     .button("ℹ")

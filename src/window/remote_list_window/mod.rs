@@ -1,3 +1,4 @@
+pub mod delete_modal;
 pub mod pull_modal;
 pub mod table_list;
 
@@ -132,6 +133,7 @@ impl Default for WindowData {
                 ui_name_rev: false,
             },
             pull_modal_data: None,
+            delete_modal_data: None,
         }
     }
 }
@@ -175,6 +177,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
         toasts_arc: _,
         image_table_options,
         pull_modal_data,
+        delete_modal_data,
     } = &mut *data;
 
     let Some(main_list_reload_flag) = main_list_reload_flag else {
@@ -193,6 +196,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             remote_image_list,
             &app_config,
             pull_modal_data,
+            delete_modal_data,
         );
     });
 
@@ -206,6 +210,14 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
                 *main_list_reload_flag.lock().unwrap() = true;
                 //ui.close_kind(egui::UiKind::Window);
             }
+        }
+    }
+
+    // Delete modal
+    if let Some(data) = delete_modal_data {
+        let modal = data.modal(ui);
+        if modal.should_close() {
+            *delete_modal_data = None;
         }
     }
 

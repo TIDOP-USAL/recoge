@@ -198,6 +198,29 @@ impl Client {
         Ok(image)
     }
 
+    pub async fn delete_image(&mut self, repository: String, tag: String) -> Result<()> {
+        let Ok(response) = self
+            .client(
+                Method::DELETE,
+                &format!("/v2/{repository}/manifests/{tag}"),
+                None,
+            )?
+            .send()
+            .await
+        else {
+            return Err(Error::Program("Can't reach zot".to_string()));
+        };
+        println!("{response:?}");
+        if response.status().is_client_error() {
+            return Err(Error::Program("zot client err".to_string()));
+        }
+        if response.status().is_server_error() {
+            return Err(RemoteError::Generic("zot err".to_string()).err());
+        }
+        // Should reply with 202
+        Ok(())
+    }
+
     /// May return an empty list
     pub async fn get_repo_images(&mut self, repo: String) -> Result<Vec<container::Image>> {
         let query = format!(
