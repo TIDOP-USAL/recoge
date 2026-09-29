@@ -1,4 +1,7 @@
-use super::{ImageTableOptions, ModalData, TableSortType};
+use super::{
+    ImageTableOptions, TableSortType, delete_modal::ModalData as DeleteModalData,
+    pull_modal::ModalData as PullModalData,
+};
 use crate::configuration::AppConfig;
 use crate::container;
 use crate::tasks::Task;
@@ -12,7 +15,7 @@ pub fn table_ui(
     image_table_options: &mut ImageTableOptions,
     images: &mut Vec<container::Image>,
     config: &AppConfig,
-    pull_modal_data: &mut Option<ModalData>,
+    pull_modal_data: &mut Option<PullModalData>,
 ) -> egui::scroll_area::ScrollAreaOutput<()> {
     let available_height = ui.available_height();
     let date_rev = image_table_options.ui_date_rev.clone();
@@ -81,15 +84,15 @@ pub fn table_ui(
             });
         })
         .body(|mut body| {
-            /*if date_rev {
-                for image in images.iter().rev() {
-                    image_table_row(image, &mut body, &config, pull_modal_data);
-                }
-            } else {*/
             for image in images.iter() {
-                image_table_row(image, &mut body, &config, pull_modal_data);
+                image_table_row(
+                    image,
+                    &mut body,
+                    &config,
+                    pull_modal_data,
+                    delete_modal_data,
+                );
             }
-            //}
         });
     table
 }
@@ -118,7 +121,8 @@ fn image_table_row(
                 {
                     println!("Pull modal for {image_name}");
                     //println!("{image:#?}");
-                    *pull_modal_data = Some(ModalData::new(image.clone(), config.clone()));
+                    *pull_modal_data = Some(PullModalData::new(image.clone(), config.clone()));
+                }
                 }
                 /*if ui
                     .button("ℹ")

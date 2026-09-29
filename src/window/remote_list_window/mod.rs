@@ -1,4 +1,4 @@
-pub mod modal;
+pub mod pull_modal;
 pub mod table_list;
 
 use crate::configuration::AppConfig;
@@ -12,7 +12,6 @@ use egui::{Id, Modal};
 use egui_extras::{Column, TableBuilder};
 use egui_notify::Toasts;
 use futures::lock::Mutex as AsyncMutex;
-use modal::ModalData;
 use std::sync::{Arc, Mutex};
 use table_list::table_ui;
 
@@ -116,7 +115,8 @@ pub struct WindowData {
     pub remote_image_list: Vec<container::Image>,
     pub toasts_arc: Arc<AsyncMutex<Toasts>>,
     image_table_options: ImageTableOptions,
-    pull_modal_data: Option<ModalData>,
+    pull_modal_data: Option<pull_modal::ModalData>,
+    delete_modal_data: Option<delete_modal::ModalData>,
 }
 
 impl Default for WindowData {
