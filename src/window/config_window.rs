@@ -3,6 +3,7 @@ use crate::configuration::AppConfig;
 use crate::tasks::Task;
 use crate::ui::GlobalData;
 use crate::window::WindowOptions;
+use crate::zot;
 use eframe::egui;
 use egui::{Align, Layout, UiBuilder};
 use egui_notify::Toasts;
@@ -156,6 +157,17 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             // Store the (possibly changed) state:
             ui.data_mut(|d| d.insert_temp(state_id, show_plaintext));
             ui.end_row();
+            ui.label("");
+            if ui.button("Comprobar").clicked() {
+                println!("Check creds");
+                let mut tasks: Task<()> = Task::new();
+                let creds_config = app_config_copy.clone();
+                let toasts_arc = Arc::clone(toasts_arc);
+                tasks.fire_async(async move {
+                    check_creds(creds_config, &toasts_arc).await;
+                });
+            }
+            ui.end_row();
         });
 
     ui.add_space(6.0);
@@ -238,5 +250,18 @@ fn textedit_context_menu(ui: &mut egui::Ui, content: &mut String) {
     }
     if ui.button("Borrar").clicked() {
         content.clear();
+    }
+}
+
+async fn check_creds(config: AppConfig, toasts_arc: &Arc<AsyncMutex<Toasts>>) {
+    let mut toasts = block_on(toasts_arc.lock().into_future());
+    if let Ok(mut client) = zot::Client::new(&config) {
+        if client.get_repository_list().await.is_ok() {
+            toasts.success("Credenciales correctas. Puedes guardar la configuración.");
+        } else {
+            toasts.error("Credenciales inccorrectas. Revisa los campos de configuración.");
+        }
+    } else {
+        toasts.error("Credenciales inccorrectas. Revisa los campos de configuración.");
     }
 }
