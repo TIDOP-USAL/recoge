@@ -65,11 +65,11 @@ impl WindowState {
         remote_image_list.sort_by_key(|x| x.date); // Oldest image first
         println!("{remote_image_list:#?}");
         // TODO testing
-        let last_image = remote_image_list.last().unwrap().clone();
+        /*let last_image = remote_image_list.last().unwrap().clone();
         let is_in_remote = zot::get_remote_info(last_image.clone().id, &mut client).await; // TODO check refactor
         println!("is in remote: {is_in_remote:?}");
         let is_in_local = last_image.is_in_local().await;
-        println!("is in local: {is_in_local:?}");
+        println!("is in local: {is_in_local:?}");*/
         // Set window parameters
         let main_list_reload_flag = Some(reload_flag);
         let app_config = config.clone();
@@ -217,6 +217,16 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
     if let Some(data) = delete_modal_data {
         let modal = data.modal(ui);
         if modal.should_close() {
+            if data.image_was_deleted() {
+                // Remove from window list
+                let index = remote_image_list
+                    .iter()
+                    .position(|x| x.get_image_name() == data.image_name);
+                if let Some(index) = index {
+                    remote_image_list.remove(index);
+                }
+            }
+
             *delete_modal_data = None;
         }
     }

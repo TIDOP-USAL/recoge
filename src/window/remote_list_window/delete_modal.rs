@@ -31,6 +31,10 @@ pub struct ModalData {
 }
 
 impl ModalData {
+    pub fn image_was_deleted(&self) -> bool {
+        *self.delete_progress.lock().unwrap() == DeleteProgress::Ok
+    }
+
     pub fn new(image: String, config: AppConfig) -> Self {
         Self {
             image_name: image.clone(),
