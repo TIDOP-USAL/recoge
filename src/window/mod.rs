@@ -28,7 +28,7 @@ pub struct WindowOptions {
     pub fixed_size: WindowSize,
     pub min_size: WindowSize,
     pub max_size: WindowSize,
-    pub data_is_loading: bool,
+    pub data_is_reloading: bool, // For reloads
 }
 
 impl Default for WindowOptions {
@@ -49,7 +49,7 @@ impl Default for WindowOptions {
             fixed_size: WindowSize::Default,
             min_size: WindowSize::Default,
             max_size: WindowSize::Default,
-            data_is_loading: false,
+            data_is_reloading: false,
         }
     }
 }
@@ -87,10 +87,10 @@ impl WindowOptions {
             fixed_size,
             min_size,
             max_size,
-            data_is_loading,
+            data_is_reloading,
         } = self.clone();
 
-        let enabled = !data_is_loading;
+        let enabled = !data_is_reloading;
         if !enabled {
             ui.request_repaint();
         }

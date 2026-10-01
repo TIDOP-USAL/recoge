@@ -40,7 +40,7 @@ impl WindowState {
     ) -> Result<(), ()> {
         let window_state = self;
         let Ok(mut client) = zot::Client::new(&config) else {
-            window_state.options.data_is_loading = false;
+            //window_state.options.data_is_loading = false;
             let mut toasts = toasts.lock().await;
             toasts
                 .error("Error de conexión. Comprueba las credenciales del Registro.")
@@ -53,7 +53,7 @@ impl WindowState {
             Ok(x) => x,
             Err(x) => {
                 println!("error: {x:?}");
-                window_state.options.data_is_loading = false;
+                //window_state.options.data_is_loading = false;
                 toasts
                     .lock()
                     .await
@@ -75,7 +75,7 @@ impl WindowState {
         let app_config = config.clone();
         // Open window
 
-        window_state.options.data_is_loading = false;
+        //window_state.options.data_is_loading = false;
         let mut data = WindowData::default();
         data.main_list_reload_flag = main_list_reload_flag;
         data.app_config = app_config;

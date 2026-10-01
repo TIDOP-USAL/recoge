@@ -33,6 +33,7 @@ egui-notify = "0.22.0"
 thiserror = "2.0.20"
 serde-aux = "4.7.0"
 futures = "0.3.34"
+arc-swap = "1.9.2"
 
 [profile.release]
 lto = true

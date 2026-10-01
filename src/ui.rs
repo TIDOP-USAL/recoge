@@ -3,6 +3,7 @@ use crate::container;
 use crate::tasks::Task;
 use crate::window;
 use crate::window::WindowOptions;
+use arc_swap::ArcSwap;
 use config::AppConfig;
 use container::Image;
 use eframe::egui;
@@ -92,7 +93,9 @@ pub struct MyApp {
     tasks: Task<()>,
     upload_window_state: Arc<Mutex<upload_window::WindowState>>,
     image_info_window_state: Arc<AsyncMutex<image_info_window::WindowState>>,
+    image_info_window_is_loading: Arc<ArcSwap<bool>>,
     remote_list_window_state: Arc<AsyncMutex<remote_list_window::WindowState>>,
+    remote_list_window_is_loading: Arc<ArcSwap<bool>>,
     config_window_state: Arc<Mutex<config_window::WindowState>>,
 }
 
@@ -163,11 +166,12 @@ impl MyApp {
     pub fn inspect_image(&mut self, image: Image, config: AppConfig) {
         let image_info_window_state_arc = Arc::clone(&self.image_info_window_state);
         let main_list_reload_flag_arc = Arc::clone(&self.image_list_should_reload);
+        let window_is_loading = Arc::clone(&self.image_info_window_is_loading);
         let toasts_arc = Arc::clone(&self.toasts);
 
         self.tasks.fire_async(async move {
             let mut image_info_window_state = image_info_window_state_arc.lock().await;
-            image_info_window_state.options.data_is_loading = true;
+            window_is_loading.store(Arc::new(true.to_owned()));
             let arc = Arc::clone(&image_info_window_state.data);
             let mut data = block_on(arc.lock());
             data.init(config, toasts_arc, main_list_reload_flag_arc)
@@ -179,7 +183,7 @@ impl MyApp {
             };
             let _r = data.load_image_info(input_data).await;
             // TODO if ok
-            image_info_window_state.options.data_is_loading = false;
+            window_is_loading.store(Arc::new(false.to_owned()));
             image_info_window_state.open();
         });
     }
@@ -187,6 +191,7 @@ impl MyApp {
     pub fn load_remote_list(&mut self, config: AppConfig) {
         let remote_list_window_state_arc = Arc::clone(&self.remote_list_window_state);
         let main_list_reload_flag_arc = Arc::clone(&self.image_list_should_reload);
+        let window_is_loading = Arc::clone(&self.remote_list_window_is_loading);
         let toasts_arc = Arc::clone(&self.toasts);
 
         self.tasks.fire_async(async move {
@@ -194,6 +199,7 @@ impl MyApp {
             let load_result = remote_list_window_state
                 .load_list_data(&config, main_list_reload_flag_arc, toasts_arc)
                 .await;
+            window_is_loading.store(Arc::new(false.to_owned()));
             if let Ok(_) = load_result {
                 remote_list_window_state.open();
             } else {
@@ -250,9 +256,11 @@ impl Default for MyApp {
             remote_list_window_state: Arc::new(AsyncMutex::new(
                 remote_list_window::WindowState::default(),
             )),
+            remote_list_window_is_loading: Arc::new(ArcSwap::new(Arc::new(false.to_owned()))),
             image_info_window_state: Arc::new(AsyncMutex::new(
                 image_info_window::WindowState::default(),
             )),
+            image_info_window_is_loading: Arc::new(ArcSwap::new(Arc::new(false.to_owned()))),
         }
     }
 }
@@ -280,16 +288,19 @@ impl eframe::App for MyApp {
             &mut upload_window_state.open,
             upload_window::ui_fn,
         );
-        let image_info_window_state_arc = Arc::clone(&self.image_info_window_state);
-        let image_info_window_state =
-            &mut *block_on(image_info_window_state_arc.lock().into_future());
-        WindowOptions::show(
-            &mut image_info_window_state.options,
-            &mut image_info_window_state.data,
-            ui,
-            &mut image_info_window_state.open,
-            image_info_window::ui_fn,
-        );
+        let image_info_window_is_loading = *self.image_info_window_is_loading.load().clone();
+        if !image_info_window_is_loading {
+            let image_info_window_state_arc = Arc::clone(&self.image_info_window_state);
+            let image_info_window_state =
+                &mut *block_on(image_info_window_state_arc.lock().into_future());
+            WindowOptions::show(
+                &mut image_info_window_state.options,
+                &mut image_info_window_state.data,
+                ui,
+                &mut image_info_window_state.open,
+                image_info_window::ui_fn,
+            );
+        }
         let config_window_state_arc = Arc::clone(&self.config_window_state);
         let config_window_state = &mut *config_window_state_arc.lock().unwrap();
         WindowOptions::show(
@@ -299,21 +310,22 @@ impl eframe::App for MyApp {
             &mut config_window_state.open,
             config_window::ui_fn,
         );
-        let remote_list_window_state_arc = Arc::clone(&self.remote_list_window_state);
-        let rlws_future = remote_list_window_state_arc.lock().into_future();
-        let remote_list_window_state = &mut *block_on(rlws_future);
-        WindowOptions::show(
-            &mut remote_list_window_state.options,
-            &mut remote_list_window_state.data,
-            ui,
-            &mut remote_list_window_state.open,
-            remote_list_window::ui_fn,
-        );
+        let remote_list_window_is_loading = *self.remote_list_window_is_loading.load().clone();
+        if !remote_list_window_is_loading {
+            let remote_list_window_state_arc = Arc::clone(&self.remote_list_window_state);
+            let rlws_future = remote_list_window_state_arc.lock().into_future();
+            let remote_list_window_state = &mut *block_on(rlws_future);
+            WindowOptions::show(
+                &mut remote_list_window_state.options,
+                &mut remote_list_window_state.data,
+                ui,
+                &mut remote_list_window_state.open,
+                remote_list_window::ui_fn,
+            );
+        }
 
         //println!("{}",image_info_window_state.open);
-        if image_info_window_state.options.data_is_loading
-            || remote_list_window_state.options.data_is_loading
-        {
+        if image_info_window_is_loading || remote_list_window_is_loading {
             ui.set_cursor_icon(egui::CursorIcon::Wait);
         }
 
@@ -353,7 +365,8 @@ impl eframe::App for MyApp {
                 .clicked()
             {
                 self.load_remote_list(global_data.config.clone());
-                remote_list_window_state.options.data_is_loading = true;
+                self.remote_list_window_is_loading
+                    .store(Arc::new(true.to_owned()));
             }
             if top_toolbar_ui
                 .button("⚙")
@@ -502,7 +515,6 @@ impl eframe::App for MyApp {
                             image,
                             &mut body,
                             upload_window_state,
-                            image_info_window_state,
                         );
                     }
                 });
@@ -520,7 +532,6 @@ impl MyApp {
         image: &Image,
         body: &mut egui_extras::TableBody,
         upload_window_state: &mut upload_window::WindowState,
-        image_info_window_state: &mut image_info_window::WindowState,
     ) {
         let row_height = 18.0;
         body.row(row_height, |mut row| {
@@ -561,10 +572,13 @@ impl MyApp {
                         .on_hover_text("Información de la imagen")
                         .clicked()
                     {
-                        if !image_info_window_state.options.data_is_loading {
+                        let image_info_window_is_loading =
+                            *self.image_info_window_is_loading.load().clone();
+                        if !image_info_window_is_loading {
                             println!("Info de {image_name}");
 
-                            image_info_window_state.options.data_is_loading = true;
+                            self.image_info_window_is_loading
+                                .store(Arc::new(true.to_owned()));
                             self.inspect_image(image.clone(), config.clone());
                         }
                     }
