@@ -7,6 +7,7 @@ use arc_swap::ArcSwap;
 use config::AppConfig;
 use container::Image;
 use eframe::egui;
+use egui::containers::scroll_area::DragScroll;
 use egui::{Align, Layout, UiBuilder};
 use egui_extras::Column;
 use egui_extras::TableBuilder;
@@ -196,8 +197,10 @@ impl MyApp {
 
         self.tasks.fire_async(async move {
             let mut remote_list_window_state = remote_list_window_state_arc.lock().await;
-            let load_result = remote_list_window_state
-                .load_list_data(&config, main_list_reload_flag_arc, toasts_arc)
+            let arc = Arc::clone(&remote_list_window_state.data);
+            let mut data = block_on(arc.lock());
+            let load_result = data
+                .init(&config, main_list_reload_flag_arc, toasts_arc)
                 .await;
             window_is_loading.store(Arc::new(false.to_owned()));
             if let Ok(_) = load_result {
@@ -329,7 +332,7 @@ impl eframe::App for MyApp {
             ui.set_cursor_icon(egui::CursorIcon::Wait);
         }
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.horizontal(|ui| {
                 let logo = egui::include_image!("logo.svg");
                 ui.set_height(20.4);
@@ -445,6 +448,7 @@ impl eframe::App for MyApp {
             let _table = TableBuilder::new(&mut table_ui)
                 .striped(true)
                 .resizable(true)
+                .drag_to_scroll(DragScroll::Always)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
                 .column(
                     Column::remainder()

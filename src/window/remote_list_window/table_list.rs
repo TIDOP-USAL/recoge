@@ -7,6 +7,7 @@ use crate::container;
 use crate::tasks::Task;
 use crate::window::{WindowOptions, WindowSize};
 use eframe::egui;
+use egui::containers::scroll_area::DragScroll;
 use egui::{Id, Modal};
 use egui_extras::{Column, TableBuilder};
 
@@ -25,6 +26,7 @@ pub fn table_ui(
     let table = TableBuilder::new(ui)
         .striped(true)
         .resizable(true)
+        .drag_to_scroll(DragScroll::Always)
         .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
         .column(
             Column::remainder()
@@ -61,7 +63,7 @@ pub fn table_ui(
                 );
             });
             header.col(|ui| {
-                ui.strong("ID local");
+                ui.strong("ID remoto");
             });
             header.col(|ui| {
                 ui.horizontal(|ui| {

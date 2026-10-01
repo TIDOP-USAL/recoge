@@ -1,6 +1,7 @@
 pub mod delete_modal;
 pub mod pull_modal;
 pub mod table_list;
+pub mod tag_list;
 
 use crate::configuration::AppConfig;
 use crate::container;
@@ -10,8 +11,8 @@ use crate::zot;
 use bollard::config::CreateImageInfo;
 use eframe::egui;
 use egui::{Id, Modal};
-use egui_extras::{Column, TableBuilder};
 use egui_notify::Toasts;
+use futures::executor::block_on;
 use futures::lock::Mutex as AsyncMutex;
 use std::sync::{Arc, Mutex};
 use table_list::table_ui;
@@ -19,7 +20,7 @@ use table_list::table_ui;
 #[derive(Default)]
 pub struct WindowState {
     pub options: WindowOptions,
-    pub data: WindowData,
+    pub data: Arc<AsyncMutex<WindowData>>,
     pub open: bool,
 }
 
@@ -27,18 +28,109 @@ impl WindowState {
     pub fn default() -> Self {
         Self {
             options: window_options(),
-            data: WindowData::default(),
+            data: Arc::new(AsyncMutex::new(WindowData::default())),
             open: false, // closed
         }
     }
 
-    pub async fn load_list_data(
+    pub fn open(&mut self) {
+        self.open = true;
+    }
+
+    pub fn close(&mut self) {
+        self.open = false;
+    }
+}
+
+impl WindowData {
+    pub async fn init(
         &mut self,
         config: &AppConfig,
         reload_flag: Arc<Mutex<bool>>,
         toasts: Arc<AsyncMutex<Toasts>>,
     ) -> Result<(), ()> {
-        let window_state = self;
+        // Set window parameters
+        self.main_list_reload_flag = Arc::clone(&reload_flag);
+        self.toasts_arc = toasts;
+        self.app_config = config.clone();
+        // Get initial data
+        if self.display_mode == DisplayMode::RepoTagList {
+            let repos = self.load_repo_list().await?;
+            // Get first repo (selected)
+            if let Some(first_repo) = repos.first() {
+                self.selected_repository = Some(first_repo.clone());
+                self.load_tag_list(first_repo.to_string()).await?;
+            }
+        } else {
+            self.load_list_data(config).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn load_repo_list(&mut self) -> Result<Vec<String>, ()> {
+        let toasts = Arc::from(&self.toasts_arc);
+        let config = self.app_config.clone();
+        let Ok(mut client) = zot::Client::new(&config) else {
+            //window_state.options.data_is_loading = false;
+            let mut toasts = toasts.lock().await;
+            toasts
+                .error("Error de conexión. Comprueba las credenciales del Registro.")
+                .duration(std::time::Duration::from_secs(3));
+            return Err(());
+        };
+        println!("Loading remote repository list");
+        let mut remote_repository_list = match client.get_repository_list().await {
+            Ok(x) => x,
+            Err(x) => {
+                println!("error: {x:?}");
+                //window_state.options.data_is_loading = false;
+                toasts
+                    .lock()
+                    .await
+                    .error("Error de conexión. Comprueba las credenciales del Registro.")
+                    .duration(std::time::Duration::from_secs(3));
+                return Err(());
+            }
+        };
+        println!("{remote_repository_list:#?}");
+        remote_repository_list.sort();
+        self.remote_repository_list = remote_repository_list.clone();
+        Ok(remote_repository_list)
+    }
+
+    pub async fn load_tag_list(&mut self, repository: String) -> Result<(), ()> {
+        let toasts = Arc::from(&self.toasts_arc);
+        let config = self.app_config.clone();
+        let Ok(mut client) = zot::Client::new(&config) else {
+            //window_state.options.data_is_loading = false;
+            let mut toasts = toasts.lock().await;
+            toasts
+                .error("Error de conexión. Comprueba las credenciales del Registro.")
+                .duration(std::time::Duration::from_secs(3));
+            return Err(());
+        };
+        println!("Loading remote tag list for {repository}");
+        let mut remote_image_list = match client.get_repo_images(repository).await {
+            Ok(x) => x,
+            Err(x) => {
+                println!("error: {x:?}");
+                //window_state.options.data_is_loading = false;
+                toasts
+                    .lock()
+                    .await
+                    .error("Error de conexión. Comprueba las credenciales del Registro.")
+                    .duration(std::time::Duration::from_secs(3));
+                return Err(());
+            }
+        };
+        remote_image_list.sort_by_key(|x| x.date); // Oldest image first
+        println!("{remote_image_list:#?}");
+        self.remote_tag_list = remote_image_list;
+        Ok(())
+    }
+
+    pub async fn load_list_data(&mut self, config: &AppConfig) -> Result<(), ()> {
+        let toasts = Arc::from(&self.toasts_arc);
         let Ok(mut client) = zot::Client::new(&config) else {
             //window_state.options.data_is_loading = false;
             let mut toasts = toasts.lock().await;
@@ -48,7 +140,7 @@ impl WindowState {
             return Err(());
         };
 
-        println!("Cargando lista remota");
+        println!("Loading remote image list");
         let mut remote_image_list = match client.get_image_list().await {
             Ok(x) => x,
             Err(x) => {
@@ -70,29 +162,10 @@ impl WindowState {
         println!("is in remote: {is_in_remote:?}");
         let is_in_local = last_image.is_in_local().await;
         println!("is in local: {is_in_local:?}");*/
-        // Set window parameters
-        let main_list_reload_flag = Some(reload_flag);
-        let app_config = config.clone();
-        // Open window
 
-        //window_state.options.data_is_loading = false;
-        let mut data = WindowData::default();
-        data.main_list_reload_flag = main_list_reload_flag;
-        data.app_config = app_config;
         remote_image_list.reverse();
-        data.remote_image_list = remote_image_list;
-        //data.toasts_arc = toasts;
-        window_state.data = data;
+        self.remote_image_list = remote_image_list;
         return Ok(());
-        //window_state.open = true;
-    }
-
-    pub fn open(&mut self) {
-        self.open = true;
-    }
-
-    pub fn close(&mut self) {
-        self.open = false;
     }
 }
 
@@ -111,8 +184,12 @@ pub fn window_options() -> WindowOptions {
 }
 
 pub struct WindowData {
-    pub main_list_reload_flag: Option<Arc<Mutex<bool>>>,
+    pub display_mode: DisplayMode,
+    pub main_list_reload_flag: Arc<Mutex<bool>>,
     pub app_config: AppConfig,
+    pub remote_repository_list: Vec<String>,
+    pub selected_repository: Option<String>,
+    pub remote_tag_list: Vec<container::Image>,
     pub remote_image_list: Vec<container::Image>,
     pub toasts_arc: Arc<AsyncMutex<Toasts>>,
     image_table_options: ImageTableOptions,
@@ -120,11 +197,21 @@ pub struct WindowData {
     delete_modal_data: Option<delete_modal::ModalData>,
 }
 
+#[derive(PartialEq)]
+pub enum DisplayMode {
+    ImageList,
+    RepoTagList,
+}
+
 impl Default for WindowData {
     fn default() -> Self {
         Self {
-            main_list_reload_flag: None,
+            display_mode: DisplayMode::RepoTagList,
+            main_list_reload_flag: Arc::default(),
             app_config: AppConfig::default(),
+            remote_repository_list: Vec::new(),
+            selected_repository: None,
+            remote_tag_list: Vec::new(),
             remote_image_list: Vec::new(),
             toasts_arc: Arc::new(AsyncMutex::new(Toasts::default())),
             image_table_options: ImageTableOptions {
@@ -169,27 +256,80 @@ pub enum TableSortType {
     Name,
 }
 
-pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
+pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
+    let data_arc_1 = Arc::clone(&data_arc);
+    let mut data = block_on(data_arc_1.lock().into_future());
     let WindowData {
+        display_mode,
         main_list_reload_flag,
         app_config,
+        remote_repository_list,
+        selected_repository,
+        remote_tag_list,
         remote_image_list,
-        toasts_arc: _,
+        toasts_arc,
         image_table_options,
         pull_modal_data,
         delete_modal_data,
     } = &mut *data;
 
+    /* TODO this was optional. now could be a dangling Arc (default)
     let Some(main_list_reload_flag) = main_list_reload_flag else {
         eprintln!("Window opened without main_list_reload_flag");
         ui.close_kind(egui::UiKind::Window);
         return;
-    };
+    };*/
 
     ui.label("Imágenes remotas (sólo última versión):");
     ui.add_space(10.0);
 
-    ui.group(|ui| {
+    // Repository panel
+    egui::Panel::left("left_panel")
+        .resizable(true)
+        .default_size(150.0)
+        .size_range(100.0..=400.0)
+        .show_collapsible(ui, &mut true, |ui| {
+            ui.vertical(|ui| {
+                ui.heading("Repositorios");
+                ui.add_space(3.0);
+            });
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for repo in remote_repository_list.clone() {
+                    if ui
+                        .selectable_value(
+                            selected_repository,
+                            Some(repo.to_string()),
+                            repo.to_string(),
+                        )
+                        .clicked()
+                    {
+                        println!("New selected repo: {selected_repository:?}");
+                        let new_repo = selected_repository.clone().unwrap();
+                        let mut tasks: Task<()> = Task::new();
+                        let data_arc_2 = Arc::clone(&data_arc);
+                        tasks.fire_async(async move {
+                            println!("locking...");
+                            let mut data = data_arc_2.lock().await;
+                            data.load_tag_list(new_repo).await;
+                        });
+                    }
+                }
+            });
+        });
+
+    egui::CentralPanel::default().show(ui, |ui| {
+        // Tag table
+        tag_list::table_ui(
+            ui,
+            image_table_options,
+            remote_tag_list,
+            &app_config,
+            pull_modal_data,
+            delete_modal_data,
+        );
+    });
+
+    /*ui.group(|ui| {
         table_ui(
             ui,
             image_table_options,
@@ -198,7 +338,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             pull_modal_data,
             delete_modal_data,
         );
-    });
+    });*/
 
     // Pull modal
     if let Some(data) = pull_modal_data {

@@ -151,7 +151,36 @@ impl Client {
         Ok(images)
     }
 
-    pub async fn get_repository_list(&mut self) -> Result<Vec<container::Image>> {
+    pub async fn get_repository_list(&mut self) -> Result<Vec<String>> {
+        let query = format!(
+            r#"query=
+{{
+  GlobalSearch(query:"", requestedPage: {{limit:0 offset:0 sortBy: ALPHABETIC_ASC}} ) {{
+    Repos {{
+      Name
+    }}
+  }}
+}}
+"#
+        );
+        let response = self.graphql_client(query).await?;
+        let body: GlobalSearchReposResponse = match response.json().await {
+            Ok(x) => x,
+            Err(x) => {
+                println!("error: {x:?}");
+                return Err(Error::Program("Can't decode Zot response".to_string()));
+            }
+        };
+        let list = body.data.GlobalSearch.Repos;
+        println!("List: {list:#?}");
+        let mut repos = Vec::new();
+        for result in list {
+            repos.push(result.Name);
+        }
+        Ok(repos)
+    }
+
+    pub async fn get_repository_list_with_newest_image(&mut self) -> Result<Vec<container::Image>> {
         let query = r"query=
 {
   RepoListWithNewestImage(requestedPage: {limit: 0, offset:0, sortBy: ALPHABETIC_ASC}) {
