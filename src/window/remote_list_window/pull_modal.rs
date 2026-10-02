@@ -179,6 +179,7 @@ impl ModalData {
         let table = TableBuilder::new(ui)
             .striped(true)
             .resizable(false)
+            .auto_shrink(false)
             .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
             .column(Column::auto().at_least(100.0).resizable(false))
             .column(
@@ -224,18 +225,6 @@ impl ModalData {
                             ui.label(format!("{status} {progress_str}"));
                         });
                     });
-                }
-                if self.table_rows.len() < 3 {
-                    for _ in 0..(3 - self.table_rows.len()) {
-                        body.row(row_height, |mut row| {
-                            row.col(|ui| {
-                                ui.label("");
-                            });
-                            row.col(|ui| {
-                                ui.label("");
-                            });
-                        });
-                    }
                 }
             });
         table

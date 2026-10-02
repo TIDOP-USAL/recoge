@@ -26,6 +26,7 @@ pub fn table_ui(
     let table = TableBuilder::new(ui)
         .striped(true)
         .resizable(true)
+        .auto_shrink(false)
         .drag_to_scroll(DragScroll::Always)
         .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
         .column(

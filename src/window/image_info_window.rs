@@ -212,7 +212,7 @@ impl WindowData {
                         remote_image.get_image_name()
                     );
                     let offset = local_date - remote_date;
-                    let date_ok = offset.abs().num_seconds() < 2;
+                    let date_ok = offset.abs().num_seconds() < 30;
                     // Digest check
                     let mut digest_found = false;
                     if let Some(remote_digest) = remote_image.digests.first() {
@@ -277,7 +277,7 @@ impl WindowData {
                 if let Some(remote_date) = remote_image_date_option {
                     println!("Date check. Local: {local_date:?}. Remote: {remote_date:?}");
                     let offset = local_date - remote_date;
-                    if offset.abs().num_seconds() < 2 {
+                    if offset.abs().num_seconds() < 30 {
                         println!("Dates match, OK!");
                         Some(RemoteImageStatus::Present)
                     } else {
@@ -733,85 +733,73 @@ impl ModalData {
     fn delete_table(&self, ui: &mut egui::Ui) {
         let available_height = 50.0;
         let row_height = 18.0;
-        let _tags_table = TableBuilder::new(ui)
-            .id_salt("tags".to_string())
-            .striped(true)
-            .resizable(false)
-            .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
-            .column(
-                Column::remainder()
-                    .clip(true)
-                    .resizable(false)
-                    .at_least(200.0),
-            )
-            .min_scrolled_height(available_height)
-            .max_scroll_height(available_height)
-            .header(20.0, |mut header| {
-                header.col(|ui| {
-                    ui.strong("Tags eliminados");
-                });
-            })
-            .body(|mut body| {
-                let table_rows = self.table_rows.lock().unwrap();
-                for msg in table_rows.iter().rev() {
-                    let Some(tag) = &msg.untagged else {
-                        continue;
-                    };
-                    body.row(row_height, |mut row| {
-                        row.col(|ui| {
-                            ui.label(tag);
-                        });
+        ui.group(|ui| {
+            let _tags_table = TableBuilder::new(ui)
+                .id_salt("tags".to_string())
+                .striped(true)
+                .resizable(false)
+                .auto_shrink(false)
+                .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
+                .column(
+                    Column::remainder()
+                        .clip(true)
+                        .resizable(false)
+                        .at_least(200.0),
+                )
+                .min_scrolled_height(available_height)
+                .max_scroll_height(available_height)
+                .header(20.0, |mut header| {
+                    header.col(|ui| {
+                        ui.strong("Tags eliminados");
                     });
-                }
-                if table_rows.len() < 3 {
-                    for _ in 0..(3 - table_rows.len()) {
+                })
+                .body(|mut body| {
+                    let table_rows = self.table_rows.lock().unwrap();
+                    for msg in table_rows.iter().rev() {
+                        let Some(tag) = &msg.untagged else {
+                            continue;
+                        };
                         body.row(row_height, |mut row| {
                             row.col(|ui| {
-                                ui.label("");
+                                ui.label(tag);
                             });
                         });
                     }
-                }
-            });
+                });
+        });
 
-        let _images_table = TableBuilder::new(ui)
-            .striped(true)
-            .resizable(false)
-            .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
-            .column(
-                Column::remainder()
-                    .clip(true)
-                    .resizable(false)
-                    .at_least(200.0),
-            )
-            .min_scrolled_height(available_height)
-            .max_scroll_height(available_height)
-            .header(20.0, |mut header| {
-                header.col(|ui| {
-                    ui.strong("Imágenes eliminadas");
-                });
-            })
-            .body(|mut body| {
-                let table_rows = self.table_rows.lock().unwrap();
-                for msg in table_rows.iter().rev() {
-                    let Some(deleted) = &msg.deleted else {
-                        continue;
-                    };
-                    body.row(row_height, |mut row| {
-                        row.col(|ui| {
-                            ui.label(deleted);
-                        });
+        ui.group(|ui| {
+            let _images_table = TableBuilder::new(ui)
+                .striped(true)
+                .resizable(false)
+                .auto_shrink(false)
+                .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
+                .column(
+                    Column::remainder()
+                        .clip(true)
+                        .resizable(false)
+                        .at_least(200.0),
+                )
+                .min_scrolled_height(available_height)
+                .max_scroll_height(available_height)
+                .header(20.0, |mut header| {
+                    header.col(|ui| {
+                        ui.strong("Imágenes eliminadas");
                     });
-                }
-                if table_rows.len() < 3 {
-                    for _ in 0..(3 - table_rows.len()) {
+                })
+                .body(|mut body| {
+                    let table_rows = self.table_rows.lock().unwrap();
+                    for msg in table_rows.iter().rev() {
+                        let Some(deleted) = &msg.deleted else {
+                            continue;
+                        };
                         body.row(row_height, |mut row| {
                             row.col(|ui| {
-                                ui.label("");
+                                ui.label(deleted);
                             });
                         });
                     }
-                }
-            });
+                });
+        });
     }
 }

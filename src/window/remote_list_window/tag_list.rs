@@ -26,16 +26,18 @@ pub fn table_ui(
     let table = TableBuilder::new(ui)
         .striped(true)
         .resizable(true)
+        .auto_shrink(false)
         .drag_to_scroll(DragScroll::Always)
         .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
         .column(
             Column::remainder()
                 .clip(true)
                 .resizable(true)
-                .at_least(200.0),
+                .at_least(200.0)
+                .at_most(500.0),
         )
-        .column(Column::auto().resizable(false))
-        .column(Column::auto().resizable(false))
+        .column(Column::auto().resizable(false).at_least(65.0))
+        .column(Column::auto().resizable(false).at_least(90.0))
         .column(Column::auto().resizable(false))
         .min_scrolled_height(0.0)
         .max_scroll_height(available_height)
@@ -173,7 +175,7 @@ fn sort_table(options: ImageTableOptions, list: &mut Vec<container::Image>) {
             }
         }
         TableSortType::Name => {
-            list.sort_by_key(|x| x.repository_info.as_ref().unwrap().repository.clone());
+            list.sort_by_key(|x| x.repository_info.as_ref().unwrap().tag.clone());
             if !options.ui_name_rev {
                 list.reverse();
             }

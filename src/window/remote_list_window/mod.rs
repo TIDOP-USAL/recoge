@@ -124,6 +124,7 @@ impl WindowData {
             }
         };
         remote_image_list.sort_by_key(|x| x.date); // Oldest image first
+        remote_image_list.reverse();
         println!("{remote_image_list:#?}");
         self.remote_tag_list = remote_image_list;
         Ok(())
@@ -286,47 +287,59 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
     // Repository panel
     egui::Panel::left("left_panel")
         .resizable(true)
-        .default_size(150.0)
-        .size_range(100.0..=400.0)
-        .show_collapsible(ui, &mut true, |ui| {
-            ui.vertical(|ui| {
-                ui.heading("Repositorios");
-                ui.add_space(3.0);
-            });
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                for repo in remote_repository_list.clone() {
-                    if ui
-                        .selectable_value(
-                            selected_repository,
-                            Some(repo.to_string()),
-                            repo.to_string(),
-                        )
-                        .clicked()
-                    {
-                        println!("New selected repo: {selected_repository:?}");
-                        let new_repo = selected_repository.clone().unwrap();
-                        let mut tasks: Task<()> = Task::new();
-                        let data_arc_2 = Arc::clone(&data_arc);
-                        tasks.fire_async(async move {
-                            println!("locking...");
-                            let mut data = data_arc_2.lock().await;
-                            data.load_tag_list(new_repo).await;
-                        });
+        .min_size(100.0)
+        .max_size(400.0)
+        .show(ui, |ui| {
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    ui.heading("Repositorios");
+                    ui.add_space(3.0);
+                });
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for repo in remote_repository_list.clone() {
+                        if ui
+                            .selectable_value(
+                                selected_repository,
+                                Some(repo.to_string()),
+                                repo.to_string(),
+                            )
+                            .on_hover_text(format!("Seleccionar el repositorio {repo}"))
+                            .clicked()
+                        {
+                            println!("New selected repo: {selected_repository:?}");
+                            let new_repo = selected_repository.clone().unwrap();
+                            let mut tasks: Task<()> = Task::new();
+                            let data_arc_2 = Arc::clone(&data_arc);
+                            tasks.fire_async(async move {
+                                let mut data = data_arc_2.lock().await;
+                                // This blocks the UI until dropped (short time)
+                                data.load_tag_list(new_repo).await;
+                            });
+                        }
                     }
-                }
+                });
+                //	ui.add_space(ui.available_width());
             });
         });
 
     egui::CentralPanel::default().show(ui, |ui| {
+        if let Some(repo) = selected_repository {
+            ui.horizontal(|ui| {
+                ui.label(format!("Repositorio:"));
+                ui.code(repo);
+            });
+        }
         // Tag table
-        tag_list::table_ui(
-            ui,
-            image_table_options,
-            remote_tag_list,
-            &app_config,
-            pull_modal_data,
-            delete_modal_data,
-        );
+        ui.group(|ui| {
+            tag_list::table_ui(
+                ui,
+                image_table_options,
+                remote_tag_list,
+                &app_config,
+                pull_modal_data,
+                delete_modal_data,
+            );
+        });
     });
 
     /*ui.group(|ui| {
@@ -358,6 +371,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
         let modal = data.modal(ui);
         if modal.should_close() {
             if data.image_was_deleted() {
+                // TODO remote from repotag list
                 // Remove from window list
                 let index = remote_image_list
                     .iter()

@@ -23,8 +23,8 @@ use window::upload_window;
 pub fn ui_start() -> eframe::Result {
     let a = std::include_bytes!("assets/icon.png");
     let image = image::load_from_memory(a)
-	.expect("Failed to open icon path")
-	.into_rgba8();
+        .expect("Failed to open icon path")
+        .into_rgba8();
     //let (width, height) = image.dimensions();
     let width = 512;
     let height = 512;
@@ -34,9 +34,11 @@ pub fn ui_start() -> eframe::Result {
         width,
         height,
     };
-    
+
     let mut options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([900.0, 450.0]).with_icon(icon),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([900.0, 450.0])
+            .with_icon(icon),
         ..Default::default()
     };
     options.viewport.fullscreen = Some(false);

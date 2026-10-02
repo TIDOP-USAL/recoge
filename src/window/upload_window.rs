@@ -359,6 +359,7 @@ impl PushInfo {
         let table = TableBuilder::new(ui)
             .striped(true)
             .resizable(false)
+            .auto_shrink(false)
             .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
             .column(
                 Column::remainder()
@@ -405,15 +406,6 @@ impl PushInfo {
                                 });
                             });
                         }
-                    }
-                }
-                if self.table_rows.len() < 3 {
-                    for _ in 0..(3 - self.table_rows.len()) {
-                        body.row(row_height, |mut row| {
-                            row.col(|ui| {
-                                ui.label("");
-                            });
-                        });
                     }
                 }
             });
