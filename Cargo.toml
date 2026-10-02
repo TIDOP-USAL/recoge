@@ -34,6 +34,7 @@ thiserror = "2.0.20"
 serde-aux = "4.7.0"
 futures = "0.3.34"
 arc-swap = "1.9.2"
+image = "0.25.10"
 
 [profile.release]
 lto = true
@@ -42,7 +43,7 @@ strip = true
 [package.metadata.bundle]
 name = "recoge"
 identifier = "es.tidop.recoge"
-#icon = ["32x32.png", "128x128.png", "128x128@2x.png"]
+icon = ["src/assets/icon.svg", "src/assets/icon.png", "src/assets/logo@2x.png"]
 #resources = ["assets", "images/**/*.png", "secrets/public_key.txt"]
 category = "Developer Tool"
 short_description = "GEstor de REgistros de COntenedores."

@@ -335,6 +335,7 @@ pub struct Client {
 impl Client {
     pub async fn new() -> Result<Self> {
         println!("Connecting to Docker...");
+	#[allow(unused)]
         let mut docker = Docker::connect_with_local_defaults();
 
         #[cfg(not(target_os = "windows"))]
