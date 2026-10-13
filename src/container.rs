@@ -82,7 +82,8 @@ pub struct ImageCollection {
 
 impl ImageCollection {
     pub fn get_id_value(&self) -> String {
-        self.id.split("sha256:").last().unwrap_or("").to_string()
+        let id = self.image_digests.first().unwrap_or(&self.id);
+        id.split("sha256:").last().unwrap_or("").to_string()
     }
 
     // Short version of the same digest
@@ -96,7 +97,7 @@ impl ImageCollection {
             images.push(Image {
                 repository_info: Some(repo_info.clone()),
                 size_bytes: self.size_bytes,
-                id: self.id.clone(),
+                id: self.image_digests.first().unwrap_or(&self.id).clone(),
                 digests: self.image_digests.clone(),
                 date: self.date,
             });
@@ -412,7 +413,10 @@ impl Client {
         let collections = self.image_collection_list().await?;
         let mut images = Vec::new();
         for collection in collections {
-            let id = collection.get_short_id();
+            let id = match collection.image_digests.first() {
+                Some(id) => id,
+                None => &collection.get_short_id(),
+            };
             let size = collection.size_bytes;
             println!("Size collection {id}: {size:?}");
             images.append(&mut collection.to_images());
@@ -495,8 +499,9 @@ impl Client {
         println!("Pull OK: {image}");
         // Pull OK. Retag if required
         if let Some(new_repo_tag) = rename_name {
-            self.image_add_tag(image, new_repo_tag).await?;
-            println!("Rename OK");
+            println!("Copying {image} to {new_repo_tag}");
+            let r = self.image_add_tag(image, new_repo_tag).await;
+            println!("Rename result: {r:?}");
         }
         Ok(())
     }
