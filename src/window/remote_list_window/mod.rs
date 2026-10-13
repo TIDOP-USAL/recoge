@@ -42,76 +42,6 @@ impl WindowState {
     }
 }
 
-pub async fn load_repo_list(data: Arc<AsyncMutex<WindowData>>) -> Result<Vec<String>, ()> {
-    let data_locked = data.lock().await;
-    let toasts = Arc::clone(&data_locked.toasts_arc);
-    let config = data_locked.app_config.clone();
-    drop(data_locked);
-    let Ok(mut client) = zot::Client::new(&config) else {
-        let mut toasts = toasts.lock().await;
-        toasts
-            .error("Error de conexión. Comprueba las credenciales del Registro.")
-            .duration(std::time::Duration::from_secs(3));
-        return Err(());
-    };
-    println!("Loading remote repository list");
-    let mut remote_repository_list = match client.get_repository_list().await {
-        Ok(x) => x,
-        Err(x) => {
-            println!("error: {x:?}");
-            toasts
-                .lock()
-                .await
-                .error("Error de conexión. Comprueba las credenciales del Registro.")
-                .duration(std::time::Duration::from_secs(3));
-            return Err(());
-        }
-    };
-    println!("{remote_repository_list:#?}");
-    remote_repository_list.sort();
-    let mut data_locked = data.lock().await;
-    data_locked.remote_repository_list = remote_repository_list.clone();
-    Ok(remote_repository_list)
-}
-
-pub async fn load_tag_list(
-    data: Arc<AsyncMutex<WindowData>>,
-    repository: String,
-) -> Result<(), ()> {
-    let data_locked = data.lock().await;
-    let toasts = Arc::clone(&data_locked.toasts_arc);
-    drop(data_locked);
-    let data_locked = data.lock().await;
-    let config = data_locked.app_config.clone();
-    drop(data_locked);
-    let Ok(mut client) = zot::Client::new(&config) else {
-        let mut toasts = toasts.lock().await;
-        toasts
-            .error("Error de conexión. Comprueba las credenciales del Registro.")
-            .duration(std::time::Duration::from_secs(3));
-        return Err(());
-    };
-    println!("Loading remote tag list for {repository}");
-    let mut remote_image_list = match client.get_repo_images(repository).await {
-        Ok(x) => x,
-        Err(x) => {
-            println!("error: {x:?}");
-            toasts
-                .lock()
-                .await
-                .error("Error de conexión. Comprueba las credenciales del Registro.")
-                .duration(std::time::Duration::from_secs(3));
-            return Err(());
-        }
-    };
-    remote_image_list.sort_by_key(|x| x.date); // Oldest image first
-    remote_image_list.reverse();
-    println!("{remote_image_list:#?}");
-    let mut data_locked = data.lock().await;
-    data_locked.remote_tag_list = remote_image_list;
-    Ok(())
-}
-
 impl WindowData {
     pub async fn init(
         &mut self,
@@ -119,13 +49,27 @@ impl WindowData {
         reload_flag: Arc<Mutex<bool>>,
         toasts: Arc<AsyncMutex<Toasts>>,
     ) -> Result<(), ()> {
+        let toasts_arc = Arc::clone(&toasts);
         // Set window parameters
         self.main_list_reload_flag = Arc::clone(&reload_flag);
         self.toasts_arc = toasts;
         self.app_config = config.clone();
-        // Lists will be first initialized in the UI loop
-
+        // Block the window from being opened while the repo list is loaded
+        // Tag list will be first initialized in the UI loop
+        let repos = self.load_repo_list().await?;
+        self.remote_repository_list_status = ListStatus::Loaded;
+        // Get first repo (selected)
+        if let Some(first_repo) = repos.first() {
+            self.selected_repository = Some(first_repo.clone());
+        }
         Ok(())
+    }
+
+    pub async fn load_repo_list(&mut self) -> Result<Vec<String>, ()> {
+        let toasts_arc = Arc::clone(&self.toasts_arc);
+        let repos = tag_list::get_repo_list(&self.app_config, toasts_arc).await?;
+        self.remote_repository_list = repos.clone();
+        Ok(repos)
     }
 
     pub async fn load_list_data(&mut self, config: &AppConfig) -> Result<(), ()> {
@@ -292,27 +236,18 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
             ui.disable();
         }
 
-        if *remote_repository_list_status == ListStatus::NotLoaded
-            || *remote_repository_list_status == ListStatus::NeedsReload
-        {
-            let mut needs_repo_selection = *remote_repository_list_status == ListStatus::NotLoaded;
-            println!("Updating repo list. First time: {needs_repo_selection}");
+        if *remote_repository_list_status == ListStatus::NeedsReload {
+            println!("Updating repo list");
             *remote_repository_list_status = ListStatus::Loading;
             let mut tasks: Task<()> = Task::new();
             let data_arc_2 = Arc::clone(&data_arc);
             let data_arc_3 = Arc::clone(&data_arc);
             tasks.fire_async(async move {
-                match load_repo_list(data_arc_2).await {
+                match tag_list::load_repo_list(data_arc_2).await {
                     Ok(repos) => {
                         println!("OK repo load");
                         let mut data = data_arc_3.lock().await;
                         data.remote_repository_list_status = ListStatus::Loaded;
-                        if needs_repo_selection {
-                            // Get first repo (selected)
-                            if let Some(first_repo) = repos.first() {
-                                data.selected_repository = Some(first_repo.clone());
-                            }
-                        }
                     }
                     Err(_) => {
                         let mut data = data_arc_3.lock().await;
@@ -332,7 +267,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                 let data_arc_2 = Arc::clone(&data_arc);
                 let data_arc_3 = Arc::clone(&data_arc);
                 tasks.fire_async(async move {
-                    match load_tag_list(data_arc_2, selected_repo).await {
+                    match tag_list::load_tag_list(data_arc_2, selected_repo).await {
                         Ok(_) => {
                             let mut data = data_arc_3.lock().await;
                             data.remote_tag_list_status = ListStatus::Loaded;

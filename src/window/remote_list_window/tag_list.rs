@@ -1,15 +1,96 @@
 use super::{
-    ImageTableOptions, TableSortType, delete_modal::ModalData as DeleteModalData,
+    ImageTableOptions, TableSortType, WindowData, delete_modal::ModalData as DeleteModalData,
     pull_modal::ModalData as PullModalData,
 };
 use crate::configuration::AppConfig;
 use crate::container;
 use crate::tasks::Task;
 use crate::window::{WindowOptions, WindowSize};
+use crate::zot;
 use eframe::egui;
 use egui::containers::scroll_area::DragScroll;
 use egui::{Id, Modal};
 use egui_extras::{Column, TableBuilder};
+use futures::lock::Mutex as AsyncMutex;
+use std::sync::Arc;
+
+pub async fn load_repo_list(data: Arc<AsyncMutex<WindowData>>) -> Result<Vec<String>, ()> {
+    let data_locked = data.lock().await;
+    let toasts = Arc::clone(&data_locked.toasts_arc);
+    let config = data_locked.app_config.clone();
+    drop(data_locked);
+    let remote_repository_list = get_repo_list(&config, toasts).await?;
+    let mut data_locked = data.lock().await;
+    data_locked.remote_repository_list = remote_repository_list.clone();
+    Ok(remote_repository_list)
+}
+
+pub async fn get_repo_list(
+    config: &AppConfig,
+    toasts: Arc<AsyncMutex<egui_notify::Toasts>>,
+) -> Result<Vec<String>, ()> {
+    let Ok(mut client) = zot::Client::new(&config) else {
+        let mut toasts = toasts.lock().await;
+        toasts
+            .error("Error de conexión. Comprueba las credenciales del Registro.")
+            .duration(std::time::Duration::from_secs(3));
+        return Err(());
+    };
+    println!("Loading remote repository list");
+    let mut remote_repository_list = match client.get_repository_list().await {
+        Ok(x) => x,
+        Err(x) => {
+            println!("error: {x:?}");
+            toasts
+                .lock()
+                .await
+                .error("Error de conexión. Comprueba las credenciales del Registro.")
+                .duration(std::time::Duration::from_secs(3));
+            return Err(());
+        }
+    };
+    println!("{remote_repository_list:#?}");
+    remote_repository_list.sort();
+    Ok(remote_repository_list)
+}
+
+pub async fn load_tag_list(
+    data: Arc<AsyncMutex<WindowData>>,
+    repository: String,
+) -> Result<(), ()> {
+    let data_locked = data.lock().await;
+    let toasts = Arc::clone(&data_locked.toasts_arc);
+    drop(data_locked);
+    let data_locked = data.lock().await;
+    let config = data_locked.app_config.clone();
+    drop(data_locked);
+    let Ok(mut client) = zot::Client::new(&config) else {
+        let mut toasts = toasts.lock().await;
+        toasts
+            .error("Error de conexión. Comprueba las credenciales del Registro.")
+            .duration(std::time::Duration::from_secs(3));
+        return Err(());
+    };
+    println!("Loading remote tag list for {repository}");
+    let mut remote_image_list = match client.get_repo_images(repository).await {
+        Ok(x) => x,
+        Err(x) => {
+            println!("error: {x:?}");
+            toasts
+                .lock()
+                .await
+                .error("Error de conexión. Comprueba las credenciales del Registro.")
+                .duration(std::time::Duration::from_secs(3));
+            return Err(());
+        }
+    };
+    remote_image_list.sort_by_key(|x| x.date); // Oldest image first
+    remote_image_list.reverse();
+    println!("{remote_image_list:#?}");
+    let mut data_locked = data.lock().await;
+    data_locked.remote_tag_list = remote_image_list;
+    Ok(())
+}
 
 pub fn table_ui(
     ui: &mut egui::Ui,
