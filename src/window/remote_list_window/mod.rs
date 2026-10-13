@@ -42,6 +42,46 @@ impl WindowState {
     }
 }
 
+pub async fn load_tag_list(
+    data: Arc<AsyncMutex<WindowData>>,
+    repository: String,
+) -> Result<(), ()> {
+    let data_locked = data.lock().await;
+    let toasts = Arc::clone(&data_locked.toasts_arc);
+    drop(data_locked);
+    let data_locked = data.lock().await;
+    let config = data_locked.app_config.clone();
+    drop(data_locked);
+    let Ok(mut client) = zot::Client::new(&config) else {
+        //window_state.options.data_is_loading = false;
+        let mut toasts = toasts.lock().await;
+        toasts
+            .error("Error de conexión. Comprueba las credenciales del Registro.")
+            .duration(std::time::Duration::from_secs(3));
+        return Err(());
+    };
+    println!("Loading remote tag list for {repository}");
+    let mut remote_image_list = match client.get_repo_images(repository).await {
+        Ok(x) => x,
+        Err(x) => {
+            println!("error: {x:?}");
+            //window_state.options.data_is_loading = false;
+            toasts
+                .lock()
+                .await
+                .error("Error de conexión. Comprueba las credenciales del Registro.")
+                .duration(std::time::Duration::from_secs(3));
+            return Err(());
+        }
+    };
+    remote_image_list.sort_by_key(|x| x.date); // Oldest image first
+    remote_image_list.reverse();
+    println!("{remote_image_list:#?}");
+    let mut data_locked = data.lock().await;
+    data_locked.remote_tag_list = remote_image_list;
+    Ok(())
+}
+
 impl WindowData {
     pub async fn init(
         &mut self,
@@ -59,7 +99,8 @@ impl WindowData {
             // Get first repo (selected)
             if let Some(first_repo) = repos.first() {
                 self.selected_repository = Some(first_repo.clone());
-                self.load_tag_list(first_repo.to_string()).await?;
+                // Hack
+                //load_tag_list(mutex_arc, first_repo.to_string()).await?;
             }
         } else {
             self.load_list_data(config).await?;
@@ -96,38 +137,6 @@ impl WindowData {
         remote_repository_list.sort();
         self.remote_repository_list = remote_repository_list.clone();
         Ok(remote_repository_list)
-    }
-
-    pub async fn load_tag_list(&mut self, repository: String) -> Result<(), ()> {
-        let toasts = Arc::from(&self.toasts_arc);
-        let config = self.app_config.clone();
-        let Ok(mut client) = zot::Client::new(&config) else {
-            //window_state.options.data_is_loading = false;
-            let mut toasts = toasts.lock().await;
-            toasts
-                .error("Error de conexión. Comprueba las credenciales del Registro.")
-                .duration(std::time::Duration::from_secs(3));
-            return Err(());
-        };
-        println!("Loading remote tag list for {repository}");
-        let mut remote_image_list = match client.get_repo_images(repository).await {
-            Ok(x) => x,
-            Err(x) => {
-                println!("error: {x:?}");
-                //window_state.options.data_is_loading = false;
-                toasts
-                    .lock()
-                    .await
-                    .error("Error de conexión. Comprueba las credenciales del Registro.")
-                    .duration(std::time::Duration::from_secs(3));
-                return Err(());
-            }
-        };
-        remote_image_list.sort_by_key(|x| x.date); // Oldest image first
-        remote_image_list.reverse();
-        println!("{remote_image_list:#?}");
-        self.remote_tag_list = remote_image_list;
-        Ok(())
     }
 
     pub async fn load_list_data(&mut self, config: &AppConfig) -> Result<(), ()> {
@@ -190,12 +199,21 @@ pub struct WindowData {
     pub app_config: AppConfig,
     pub remote_repository_list: Vec<String>,
     pub selected_repository: Option<String>,
+    pub remote_tag_list_status: ListStatus,
     pub remote_tag_list: Vec<container::Image>,
     pub remote_image_list: Vec<container::Image>,
     pub toasts_arc: Arc<AsyncMutex<Toasts>>,
     image_table_options: ImageTableOptions,
     pull_modal_data: Option<pull_modal::ModalData>,
     delete_modal_data: Option<delete_modal::ModalData>,
+}
+
+#[derive(PartialEq)]
+pub enum ListStatus {
+    Loaded,
+    NeedsReload,
+    Loading,
+    Failed,
 }
 
 #[derive(PartialEq)]
@@ -212,6 +230,7 @@ impl Default for WindowData {
             app_config: AppConfig::default(),
             remote_repository_list: Vec::new(),
             selected_repository: None,
+            remote_tag_list_status: ListStatus::NeedsReload,
             remote_tag_list: Vec::new(),
             remote_image_list: Vec::new(),
             toasts_arc: Arc::new(AsyncMutex::new(Toasts::default())),
@@ -266,6 +285,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
         app_config,
         remote_repository_list,
         selected_repository,
+        remote_tag_list_status,
         remote_tag_list,
         remote_image_list,
         toasts_arc,
@@ -281,7 +301,30 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
         return;
     };*/
 
-    ui.label("Imágenes remotas (sólo última versión):");
+    // Tag list update logic
+    if *remote_tag_list_status == ListStatus::NeedsReload {
+        *remote_tag_list_status = ListStatus::Loading;
+        let new_repo = selected_repository.clone().unwrap();
+        let mut tasks: Task<()> = Task::new();
+        let data_arc_2 = Arc::clone(&data_arc);
+        let data_arc_3 = Arc::clone(&data_arc);
+        tasks.fire_async(async move {
+            match load_tag_list(data_arc_2, new_repo).await {
+                Ok(_) => {
+                    let mut data = data_arc_3.lock().await;
+                    data.remote_tag_list_status = ListStatus::Loaded;
+                }
+                Err(_) => {
+                    let mut data = data_arc_3.lock().await;
+                    data.remote_tag_list_status = ListStatus::Failed;
+                }
+            }
+        });
+    }
+
+    // TODO selector
+
+    ui.label("Imágenes remotas:");
     ui.add_space(10.0);
 
     // Repository panel
@@ -307,18 +350,11 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                             .clicked()
                         {
                             println!("New selected repo: {selected_repository:?}");
-                            let new_repo = selected_repository.clone().unwrap();
-                            let mut tasks: Task<()> = Task::new();
-                            let data_arc_2 = Arc::clone(&data_arc);
-                            tasks.fire_async(async move {
-                                let mut data = data_arc_2.lock().await;
-                                // This blocks the UI until dropped (short time)
-                                data.load_tag_list(new_repo).await;
-                            });
+                            *remote_tag_list_status = ListStatus::NeedsReload;
                         }
                     }
                 });
-                //	ui.add_space(ui.available_width());
+                //ui.add_space(ui.available_width());
             });
         });
 
@@ -327,10 +363,17 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
             ui.horizontal(|ui| {
                 ui.label(format!("Repositorio:"));
                 ui.code(repo);
+                if *remote_tag_list_status == ListStatus::Loading {
+                    ui.spinner();
+                    ui.set_cursor_icon(egui::CursorIcon::Wait);
+                }
             });
         }
         // Tag table
         ui.group(|ui| {
+            if *remote_tag_list_status == ListStatus::Loading {
+                ui.disable();
+            }
             tag_list::table_ui(
                 ui,
                 image_table_options,
