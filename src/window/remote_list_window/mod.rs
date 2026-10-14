@@ -71,36 +71,6 @@ impl WindowData {
         self.remote_repository_list = repos.clone();
         Ok(repos)
     }
-
-    pub async fn load_list_data(&mut self, config: &AppConfig) -> Result<(), ()> {
-        let toasts = Arc::from(&self.toasts_arc);
-        let Ok(mut client) = zot::Client::new(&config) else {
-            let mut toasts = toasts.lock().await;
-            toasts
-                .error("Error de conexión. Comprueba las credenciales del Registro.")
-                .duration(std::time::Duration::from_secs(3));
-            return Err(());
-        };
-
-        println!("Loading remote image list");
-        let mut remote_image_list = match client.get_image_list().await {
-            Ok(x) => x,
-            Err(x) => {
-                println!("error: {x:?}");
-                toasts
-                    .lock()
-                    .await
-                    .error("Error de conexión. Comprueba las credenciales del Registro.")
-                    .duration(std::time::Duration::from_secs(3));
-                return Err(());
-            }
-        };
-        remote_image_list.sort_by_key(|x| x.date); // Oldest image first
-        remote_image_list.reverse();
-        println!("{remote_image_list:#?}");
-        self.remote_image_list = remote_image_list;
-        return Ok(());
-    }
 }
 
 pub fn window_options() -> WindowOptions {
@@ -121,11 +91,14 @@ pub struct WindowData {
     pub display_mode: DisplayMode,
     pub main_list_reload_flag: Arc<Mutex<bool>>,
     pub app_config: AppConfig,
+    // Repo tag list
     pub remote_repository_list_status: ListStatus,
     pub remote_repository_list: Vec<String>,
     pub selected_repository: Option<String>,
     pub remote_tag_list_status: ListStatus,
     pub remote_tag_list: Vec<container::Image>,
+    // Image list
+    pub remote_image_list_status: ListStatus,
     pub remote_image_list: Vec<container::Image>,
     pub toasts_arc: Arc<AsyncMutex<Toasts>>,
     image_table_options: ImageTableOptions,
@@ -159,6 +132,7 @@ impl Default for WindowData {
             selected_repository: None,
             remote_tag_list_status: ListStatus::NeedsReload,
             remote_tag_list: Vec::new(),
+            remote_image_list_status: ListStatus::NeedsReload,
             remote_image_list: Vec::new(),
             toasts_arc: Arc::new(AsyncMutex::new(Toasts::default())),
             image_table_options: ImageTableOptions {
@@ -215,6 +189,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
         selected_repository,
         remote_tag_list_status,
         remote_tag_list,
+        remote_image_list_status,
         remote_image_list,
         toasts_arc,
         image_table_options,
@@ -280,87 +255,161 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                 });
             }
         }
+    } else {
+        // Image list update logic
+        if *remote_image_list_status != ListStatus::Loaded {
+            ui.disable();
+        }
+        if *remote_image_list_status == ListStatus::NeedsReload {
+            println!("Updating image list");
+            *remote_image_list_status = ListStatus::Loading;
+            let mut tasks: Task<()> = Task::new();
+            let data_arc_2 = Arc::clone(&data_arc);
+            let data_arc_3 = Arc::clone(&data_arc);
+            tasks.fire_async(async move {
+                match table_list::load_list_data(data_arc_2).await {
+                    Ok(repos) => {
+                        println!("OK repo load");
+                        let mut data = data_arc_3.lock().await;
+                        data.remote_image_list_status = ListStatus::Loaded;
+                    }
+                    Err(_) => {
+                        let mut data = data_arc_3.lock().await;
+                        data.remote_image_list_status = ListStatus::Failed;
+                    }
+                }
+            });
+        }
     }
 
     // TODO selector
 
-    ui.label("Imágenes remotas:");
-    ui.add_space(10.0);
+    //    ui.add_space(4.0);
 
-    // Repository panel
-    egui::Panel::left("left_panel")
-        .resizable(true)
-        .min_size(150.0)
-        .default_size(200.0)
-        .max_size(400.0)
-        .show(ui, |ui| {
-            ui.group(|ui| {
-                ui.vertical(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.heading("Repositorios");
-                        if ui
-                            .button("⟲")
-                            .on_hover_text("Recargar lista de repositorios remotos")
-                            .clicked()
-                        {
-                            *remote_repository_list_status = ListStatus::NeedsReload;
-                        }
-                    });
-                    ui.add_space(3.0);
-                });
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    if *remote_repository_list_status == ListStatus::Loading {
-                        ui.set_cursor_icon(egui::CursorIcon::Wait);
-                    }
-                    for repo in remote_repository_list.clone() {
-                        if ui
-                            .selectable_value(
-                                selected_repository,
-                                Some(repo.to_string()),
-                                repo.to_string(),
-                            )
-                            .on_hover_text(format!("Seleccionar el repositorio {repo}"))
-                            .clicked()
-                        {
-                            println!("New selected repo: {selected_repository:?}");
-                            *remote_tag_list_status = ListStatus::NeedsReload;
-                        }
-                    }
-                    ui.allocate_space(ui.available_size());
-                });
-            });
-        });
+    ui.horizontal(|ui| {
+        ui.label("Imágenes remotas:");
+        ui.selectable_value(
+            display_mode,
+            DisplayMode::RepoTagList,
+            "|Ξ|☰| Lista separada",
+        )
+        .on_hover_text(
+            "Mostrar una lista de imágenes separada entre repositorios y versiones (tag)",
+        );
+        ui.selectable_value(
+            display_mode,
+            DisplayMode::ImageList,
+            "|☰| Lista de imágenes",
+        )
+        .on_hover_text("Mostrar todas las imágenes en lista");
 
-    egui::CentralPanel::default().show(ui, |ui| {
-        if *remote_tag_list_status == ListStatus::Loading {
-            ui.set_cursor_icon(egui::CursorIcon::Wait);
-        }
-
-        if let Some(repo) = selected_repository {
-            ui.horizontal(|ui| {
-                //ui.label("Repositorio:");
-                ui.label("🗀");
-                ui.code(repo);
-                if *remote_tag_list_status == ListStatus::Loading {
-                    ui.spinner();
+        if *display_mode == DisplayMode::ImageList {
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
+                if ui
+                    .button("⟲")
+                    .on_hover_text("Recargar lista de imágenes remotas")
+                    .clicked()
+                {
+                    *remote_image_list_status = ListStatus::NeedsReload;
                 }
             });
-        }
-        // Tag table
-        ui.group(|ui| {
-            if *remote_tag_list_status == ListStatus::Loading {
-                ui.disable();
+            if *remote_image_list_status == ListStatus::Loading {
+                ui.set_cursor_icon(egui::CursorIcon::Wait);
             }
-            tag_list::table_ui(
-                ui,
-                image_table_options,
-                remote_tag_list,
-                &app_config,
-                pull_modal_data,
-                delete_modal_data,
-            );
-        });
+        }
     });
+    ui.add_space(6.0);
+
+    match display_mode {
+        DisplayMode::RepoTagList => {
+            // Repository panel
+            egui::Panel::left("left_panel")
+                .resizable(true)
+                .min_size(150.0)
+                .default_size(200.0)
+                .max_size(400.0)
+                .show(ui, |ui| {
+                    ui.group(|ui| {
+                        ui.vertical(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.heading("Repositorios");
+                                if ui
+                                    .button("⟲")
+                                    .on_hover_text("Recargar lista de repositorios remotos")
+                                    .clicked()
+                                {
+                                    *remote_repository_list_status = ListStatus::NeedsReload;
+                                }
+                            });
+                            ui.add_space(3.0);
+                        });
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            if *remote_repository_list_status == ListStatus::Loading {
+                                ui.set_cursor_icon(egui::CursorIcon::Wait);
+                            }
+                            for repo in remote_repository_list.clone() {
+                                if ui
+                                    .selectable_value(
+                                        selected_repository,
+                                        Some(repo.to_string()),
+                                        repo.to_string(),
+                                    )
+                                    .on_hover_text(format!("Seleccionar el repositorio {repo}"))
+                                    .clicked()
+                                {
+                                    println!("New selected repo: {selected_repository:?}");
+                                    *remote_tag_list_status = ListStatus::NeedsReload;
+                                }
+                            }
+                            ui.allocate_space(ui.available_size());
+                        });
+                    });
+                });
+
+            egui::CentralPanel::default().show(ui, |ui| {
+                if *remote_tag_list_status == ListStatus::Loading {
+                    ui.set_cursor_icon(egui::CursorIcon::Wait);
+                }
+
+                if let Some(repo) = selected_repository {
+                    ui.horizontal(|ui| {
+                        //ui.label("Repositorio:");
+                        ui.label("🗀");
+                        ui.code(repo).on_hover_text("El repositorio seleccionado");
+                        if *remote_tag_list_status == ListStatus::Loading {
+                            ui.spinner();
+                        }
+                    });
+                }
+                // Tag table
+                ui.group(|ui| {
+                    if *remote_tag_list_status == ListStatus::Loading {
+                        ui.disable();
+                    }
+                    tag_list::table_ui(
+                        ui,
+                        image_table_options,
+                        remote_tag_list,
+                        &app_config,
+                        pull_modal_data,
+                        delete_modal_data,
+                    );
+                });
+            });
+        }
+        DisplayMode::ImageList => {
+            ui.group(|ui| {
+                table_ui(
+                    ui,
+                    image_table_options,
+                    remote_image_list,
+                    &app_config,
+                    pull_modal_data,
+                    delete_modal_data,
+                );
+            });
+        }
+    }
 
     /*ui.group(|ui| {
         table_ui(
@@ -398,13 +447,15 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                 if let Some(index) = index {
                     remote_image_list.remove(index);
                 }
-		// Remove from tag list
-		let index = remote_tag_list.iter().position(|x| x.get_image_name() == data.image_name);
+                // Remove from tag list
+                let index = remote_tag_list
+                    .iter()
+                    .position(|x| x.get_image_name() == data.image_name);
                 if let Some(index) = index {
                     remote_tag_list.remove(index);
-                }		
+                }
             }
-
+            // Close modal
             *delete_modal_data = None;
         }
     }

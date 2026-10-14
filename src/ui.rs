@@ -481,7 +481,7 @@ impl eframe::App for MyApp {
                 .header(21.0, |mut header| {
                     header.col(|ui| {
                         ui.horizontal(|ui| {
-                            ui.strong("Nombre/Tag");
+                            ui.strong("Nombre de imagen");
                             let btn = ui
                                 .button(if name_rev { "⬇" } else { "⬆" })
                                 .on_hover_text(if name_rev { "A-Z" } else { "Z-A" });

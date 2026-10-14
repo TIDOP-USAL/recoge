@@ -114,7 +114,7 @@ pub fn table_ui(
             Column::remainder()
                 .clip(true)
                 .resizable(true)
-                .at_least(200.0)
+                .at_least(120.0)
                 .at_most(500.0),
         )
         .column(Column::auto().resizable(false).at_least(65.0))
