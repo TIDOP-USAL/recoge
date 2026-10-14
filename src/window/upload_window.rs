@@ -211,7 +211,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
                     }
                     if tag.response.rect.contains(hover_pos) {
                         egui::Tooltip::for_widget(&tag.response).show(|ui| {
-                            ui.label("Versión de la imagen");
+                            ui.label("Versión de la imagen (tag)");
                         });
                     }
                     // TODO block special characters

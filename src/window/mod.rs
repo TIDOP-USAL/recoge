@@ -25,6 +25,7 @@ pub struct WindowOptions {
     pub anchored: bool,
     pub anchor: egui::Align2,
     pub anchor_offset: egui::Vec2,
+    pub default_size: WindowSize,
     pub fixed_size: WindowSize,
     pub min_size: WindowSize,
     pub max_size: WindowSize,
@@ -46,6 +47,7 @@ impl Default for WindowOptions {
             anchored: false,
             anchor: egui::Align2::RIGHT_TOP,
             anchor_offset: egui::Vec2::ZERO,
+            default_size: WindowSize::Default,
             fixed_size: WindowSize::Default,
             min_size: WindowSize::Default,
             max_size: WindowSize::Default,
@@ -84,6 +86,7 @@ impl WindowOptions {
             anchored,
             anchor,
             anchor_offset,
+            default_size,
             fixed_size,
             min_size,
             max_size,
@@ -111,6 +114,11 @@ impl WindowOptions {
             window = window.anchor(anchor, anchor_offset);
         }
         let ui_rect_size = ui.content_rect().size();
+        let default_size = match default_size {
+            WindowSize::Default => None,
+            WindowSize::Half => Some(egui::vec2(ui_rect_size.x / 2.0, ui_rect_size.y / 2.0)),
+            WindowSize::Fixed(vec2) => Some(vec2),
+        };
         let fixed_size = match fixed_size {
             WindowSize::Default => None,
             WindowSize::Half => Some(egui::vec2(ui_rect_size.x / 2.0, ui_rect_size.y / 2.0)),
@@ -128,6 +136,9 @@ impl WindowOptions {
         };
 
         window = window.default_pos(egui::pos2(ui_rect_size.x / 2.0, ui_rect_size.y / 2.0));
+        if let Some(size) = default_size {
+            window = window.default_size(size);
+        }
         if let Some(size) = fixed_size {
             window = window.fixed_size(size);
         }

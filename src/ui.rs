@@ -464,6 +464,7 @@ impl eframe::App for MyApp {
             let _table = TableBuilder::new(&mut table_ui)
                 .striped(true)
                 .resizable(true)
+                .auto_shrink(false)
                 .drag_to_scroll(DragScroll::Always)
                 .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
                 .column(
@@ -472,9 +473,9 @@ impl eframe::App for MyApp {
                         .clip(true)
                         .resizable(true),
                 )
-                .column(Column::auto())
-                .column(Column::auto())
-                .column(Column::auto())
+                .column(Column::auto().resizable(false))
+                .column(Column::auto().resizable(false))
+                .column(Column::auto().resizable(false))
                 .min_scrolled_height(0.0)
                 .max_scroll_height(available_height)
                 .header(21.0, |mut header| {
