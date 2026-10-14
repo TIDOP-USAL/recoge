@@ -326,8 +326,8 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                             *remote_tag_list_status = ListStatus::NeedsReload;
                         }
                     }
+                    ui.allocate_space(ui.available_size());
                 });
-                ui.allocate_space(ui.available_size());
             });
         });
 
@@ -391,14 +391,18 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
         let modal = data.modal(ui);
         if modal.should_close() {
             if data.image_was_deleted() {
-                // TODO remote from repotag list
-                // Remove from window list
+                // Remove from image list
                 let index = remote_image_list
                     .iter()
                     .position(|x| x.get_image_name() == data.image_name);
                 if let Some(index) = index {
                     remote_image_list.remove(index);
                 }
+		// Remove from tag list
+		let index = remote_tag_list.iter().position(|x| x.get_image_name() == data.image_name);
+                if let Some(index) = index {
+                    remote_tag_list.remove(index);
+                }		
             }
 
             *delete_modal_data = None;
