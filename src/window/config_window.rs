@@ -254,14 +254,16 @@ fn textedit_context_menu(ui: &mut egui::Ui, content: &mut String) {
 }
 
 async fn check_creds(config: AppConfig, toasts_arc: &Arc<AsyncMutex<Toasts>>) {
-    let mut toasts = block_on(toasts_arc.lock().into_future());
     if let Ok(mut client) = zot::Client::new(&config) {
         if client.get_repository_list().await.is_ok() {
+	    let mut toasts = toasts_arc.lock().await;
             toasts.success("Credenciales correctas. Puedes guardar la configuración.");
         } else {
+	    let mut toasts = toasts_arc.lock().await;
             toasts.error("Credenciales inccorrectas. Revisa los campos de configuración.");
         }
     } else {
+	let mut toasts = toasts_arc.lock().await;
         toasts.error("Credenciales inccorrectas. Revisa los campos de configuración.");
     }
 }
