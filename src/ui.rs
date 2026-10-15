@@ -79,6 +79,7 @@ pub enum TableSortType {
 #[derive(PartialEq, Clone)]
 pub enum LoadState {
     NotLoaded,
+    NeedsReload,
     Loading,
     Loaded,
 }
@@ -158,7 +159,7 @@ impl MyApp {
                     .lock()
                     .await
                     .error("Error de conexión. Comprueba que Docker esté funcionando.")
-                    .duration(std::time::Duration::from_secs(3));
+                    .duration(std::time::Duration::from_secs(5));
                 return;
             };
             let Ok(mut images) = docker.image_list().await else {
@@ -177,6 +178,10 @@ impl MyApp {
             image_list.reverse();
             *image_list_load_state_arc.lock().unwrap() = LoadState::Loaded;
         });
+        // Re-sort as default
+        self.image_table_options.sort_type = TableSortType::Date;
+        self.image_table_options.ui_date_rev = true;
+        self.image_table_options.ui_name_rev = false;
     }
 
     // image: image name or digest
@@ -234,26 +239,6 @@ impl MyApp {
 
 impl Default for MyApp {
     fn default() -> Self {
-        let mut image_list = Vec::new();
-        for i in 1..2 {
-            image_list.push(Image {
-                repository_info: Some(container::RepositoryInfo {
-                    repository: "cr.tidop.es/lcsc".to_string(),
-                    tag: "latest".to_string(),
-                }),
-                size_bytes: Some(i * 1000),
-                id: "0042152187f577f43a7e621fa39fa54baa6f097f261b9338e3e5c114a0a0dd09".to_string(),
-                digests: vec![
-                    "0042152187f577f43a7e621fa39fa54baa6f097f261b9338e3e5c114a0a0dd09".to_string(),
-                ],
-                /*date: chrono::DateTime::<chrono::Utc>::from_timestamp_secs(
-                        (i * 1000).try_into().unwrap(),
-                )*/
-                date: chrono::DateTime::parse_from_rfc3339("2026-04-22T10:48:35.802927736Z")
-                    .unwrap()
-                    .into(),
-            });
-        }
         Self {
             global_data: Arc::new(AsyncMutex::new(GlobalData {
                 config_state: LoadState::NotLoaded,
@@ -263,8 +248,8 @@ impl Default for MyApp {
             toasts: Arc::new(AsyncMutex::new(
                 Toasts::default().with_anchor(egui_notify::Anchor::BottomRight),
             )),
-            image_list: Arc::new(Mutex::new(image_list.clone())),
-            image_list_load_state: Arc::new(Mutex::new(LoadState::NotLoaded)),
+            image_list: Arc::new(Mutex::new(Vec::new())),
+            image_list_load_state: Arc::new(Mutex::new(LoadState::NeedsReload)),
             image_list_should_reload: Arc::new(Mutex::new(false)),
             image_table_options: ImageTableOptions {
                 search_field: None,
@@ -347,9 +332,14 @@ impl eframe::App for MyApp {
             );
         }
 
-        //println!("{}",image_info_window_state.open);
         if image_info_window_is_loading || remote_list_window_is_loading {
             ui.set_cursor_icon(egui::CursorIcon::Wait);
+        }
+
+        // List refresh logic
+        if *self.image_list_load_state.lock().unwrap() == LoadState::NeedsReload {
+            *self.image_list_load_state.lock().unwrap() = LoadState::Loading;
+            self.update_list();
         }
 
         egui::CentralPanel::default().show(ui, |ui| {
@@ -375,12 +365,7 @@ impl eframe::App for MyApp {
                 .on_hover_text("Recargar lista de imágenes")
                 .clicked()
             {
-                *self.image_list_load_state.lock().unwrap() = LoadState::Loading;
-                self.update_list();
-                // Re-sort as default
-                self.image_table_options.sort_type = TableSortType::Date;
-                self.image_table_options.ui_date_rev = true;
-                self.image_table_options.ui_name_rev = false;
+                *self.image_list_load_state.lock().unwrap() = LoadState::NeedsReload;
             }
             if top_toolbar_ui
                 .button("🔍 Registro")
@@ -412,9 +397,10 @@ impl eframe::App for MyApp {
                 }
                 LoadState::Loading => {
                     ui.label("Cargando lista ");
+                    ui.set_cursor_icon(egui::CursorIcon::Wait);
                     ui.spinner();
                 }
-                LoadState::NotLoaded => {
+                LoadState::NotLoaded | LoadState::NeedsReload => {
                     ui.label("Lista no cargada");
                 }
             });
@@ -424,10 +410,10 @@ impl eframe::App for MyApp {
                 let mut image_list_should_reload = self.image_list_should_reload.lock().unwrap();
                 *image_list_should_reload = false;
                 drop(image_list_should_reload);
-                *self.image_list_load_state.lock().unwrap() = LoadState::Loading;
-                self.update_list();
+                *self.image_list_load_state.lock().unwrap() = LoadState::NeedsReload;
             }
 
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.label("Imágenes locales:".to_string());
                 let mut focus = false;
@@ -457,14 +443,21 @@ impl eframe::App for MyApp {
                     }
                 }
             });
-            ui.add_space(10.0);
+            ui.add_space(6.0);
             ui.separator();
+            ui.add_space(5.0);
             let date_rev = self.image_table_options.ui_date_rev.clone();
             let name_rev = self.image_table_options.ui_name_rev.clone();
             let sort_type = self.image_table_options.sort_type.clone();
             let available_height = ui.available_height();
 
             let mut table_ui = ui.new_child(UiBuilder::new());
+            match *self.image_list_load_state.lock().unwrap() {
+                LoadState::Loading | LoadState::NotLoaded => {
+                    table_ui.disable();
+                }
+                _ => {}
+            }
             let _table = TableBuilder::new(&mut table_ui)
                 .striped(true)
                 .resizable(true)
@@ -477,8 +470,8 @@ impl eframe::App for MyApp {
                         .clip(true)
                         .resizable(true),
                 )
-                .column(Column::auto().resizable(false))
-                .column(Column::auto().resizable(false))
+                .column(Column::auto().resizable(false).at_least(65.0))
+                .column(Column::auto().resizable(false).at_least(89.0))
                 .column(Column::auto().resizable(false))
                 .min_scrolled_height(0.0)
                 .max_scroll_height(available_height)
