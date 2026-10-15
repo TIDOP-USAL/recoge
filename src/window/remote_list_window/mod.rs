@@ -100,6 +100,7 @@ pub struct WindowData {
     // Image list
     pub remote_image_list_status: ListStatus,
     pub remote_image_list: Vec<container::Image>,
+    pub remote_image_list_mode: RemoteImageListMode,
     pub toasts_arc: Arc<AsyncMutex<Toasts>>,
     image_table_options: ImageTableOptions,
     pull_modal_data: Option<pull_modal::ModalData>,
@@ -121,6 +122,12 @@ pub enum DisplayMode {
     RepoTagList,
 }
 
+#[derive(PartialEq, Clone)]
+pub enum RemoteImageListMode {
+    All,
+    LastRepoImage,
+}
+
 impl Default for WindowData {
     fn default() -> Self {
         Self {
@@ -134,6 +141,7 @@ impl Default for WindowData {
             remote_tag_list: Vec::new(),
             remote_image_list_status: ListStatus::NeedsReload,
             remote_image_list: Vec::new(),
+            remote_image_list_mode: RemoteImageListMode::All,
             toasts_arc: Arc::new(AsyncMutex::new(Toasts::default())),
             image_table_options: ImageTableOptions {
                 sort_type: TableSortType::Date,
@@ -191,6 +199,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
         remote_tag_list,
         remote_image_list_status,
         remote_image_list,
+        remote_image_list_mode,
         toasts_arc,
         image_table_options,
         pull_modal_data,
@@ -305,13 +314,24 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
 
         if *display_mode == DisplayMode::ImageList {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
-                if ui
+		if ui
                     .button("⟲")
                     .on_hover_text("Recargar lista de imágenes remotas")
                     .clicked()
                 {
                     *remote_image_list_status = ListStatus::NeedsReload;
                 }
+		let last_btn = ui.button("⏭").on_hover_text("Mostrar sólo la última versión de cada repositorio.\nSe entiende por última versión, la última que se haya subido al registro, no necesariamente la de mayor número de versión.");
+		if *remote_image_list_mode == RemoteImageListMode::LastRepoImage {
+		    last_btn.clone().highlight();
+		}
+		if last_btn.clicked() {
+		    *remote_image_list_mode = match *remote_image_list_mode {
+			RemoteImageListMode::All => RemoteImageListMode::LastRepoImage,
+			RemoteImageListMode::LastRepoImage => RemoteImageListMode::All,
+    		    };
+		    *remote_image_list_status = ListStatus::NeedsReload;
+		}
             });
             if *remote_image_list_status == ListStatus::Loading {
                 ui.set_cursor_icon(egui::CursorIcon::Wait);
@@ -333,13 +353,19 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                         ui.vertical(|ui| {
                             ui.horizontal(|ui| {
                                 ui.heading("Repositorios");
-                                if ui
-                                    .button("⟲")
-                                    .on_hover_text("Recargar lista de repositorios remotos")
-                                    .clicked()
-                                {
-                                    *remote_repository_list_status = ListStatus::NeedsReload;
-                                }
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::LEFT),
+                                    |ui| {
+                                        if ui
+                                            .button("⟲")
+                                            .on_hover_text("Recargar lista de repositorios remotos")
+                                            .clicked()
+                                        {
+                                            *remote_repository_list_status =
+                                                ListStatus::NeedsReload;
+                                        }
+                                    },
+                                );
                             });
                             ui.add_space(3.0);
                         });

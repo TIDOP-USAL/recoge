@@ -481,7 +481,9 @@ impl eframe::App for MyApp {
                 .header(21.0, |mut header| {
                     header.col(|ui| {
                         ui.horizontal(|ui| {
-                            ui.strong("Nombre local").on_hover_text("Nombre de la imagen de contenedor, en formato repositorio:tag");
+                            ui.strong("Nombre local").on_hover_text(
+                                "Nombre de la imagen de contenedor, en formato repositorio:tag",
+                            );
                             let btn = ui
                                 .button(if name_rev { "⬇" } else { "⬆" })
                                 .on_hover_text(if name_rev { "A-Z" } else { "Z-A" });

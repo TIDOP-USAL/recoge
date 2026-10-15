@@ -18,6 +18,7 @@ pub async fn load_list_data(data: Arc<AsyncMutex<WindowData>>) -> Result<(), ()>
     let data_locked = data.lock().await;
     let toasts = Arc::clone(&data_locked.toasts_arc);
     let config = data_locked.app_config.clone();
+    let list_mode = data_locked.remote_image_list_mode.clone();
     drop(data_locked);
     let Ok(mut client) = zot::Client::new(&config) else {
         let mut toasts = toasts.lock().await;
@@ -28,7 +29,13 @@ pub async fn load_list_data(data: Arc<AsyncMutex<WindowData>>) -> Result<(), ()>
     };
 
     println!("Loading remote image list");
-    let mut remote_image_list = match client.get_image_list().await {
+    let list_result = match list_mode {
+        super::RemoteImageListMode::All => client.get_image_list().await,
+        super::RemoteImageListMode::LastRepoImage => {
+            client.get_repository_list_with_newest_image().await
+        }
+    };
+    let mut remote_image_list = match list_result {
         Ok(x) => x,
         Err(x) => {
             println!("error: {x:?}");

@@ -1,7 +1,7 @@
+use super::PullProgress;
 use crate::configuration::AppConfig;
 use crate::container;
 use crate::tasks::Task;
-use super::PullProgress;
 use crate::window::{WindowOptions, WindowSize};
 use crate::zot;
 use bollard::config::CreateImageInfo;
