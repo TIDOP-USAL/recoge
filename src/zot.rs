@@ -120,35 +120,7 @@ impl Client {
     }
 
     pub async fn get_image_list(&mut self) -> Result<Vec<container::Image>> {
-        // TODO Images is not working
-        let query = format!(
-            r#"query=
-{{
-  GlobalSearch(query:"", requestedPage: {{limit:0 offset:0 sortBy: ALPHABETIC_ASC}} ) {{
-    Repos {{
-      Name
-    }}
-  }}
-}}
-"#
-        );
-        let response = self.graphql_client(query).await?;
-        let body: GlobalSearchReposResponse = match response.json().await {
-            Ok(x) => x,
-            Err(x) => {
-                println!("error: {x:?}");
-                return Err(Error::Program("Can't decode Zot response".to_string()));
-            }
-        };
-        let list = body.data.GlobalSearch.Repos;
-        println!("List: {list:#?}");
-        let mut images = Vec::new();
-        for result in list {
-            //repos.push(result.Name);
-            let mut repo_images = self.get_repo_images(result.Name).await?;
-            images.append(&mut repo_images);
-        }
-        Ok(images)
+        return self.get_repo_images(String::new()).await;
     }
 
     pub async fn get_repository_list(&mut self) -> Result<Vec<String>> {
