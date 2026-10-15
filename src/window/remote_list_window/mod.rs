@@ -226,12 +226,14 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
             let mut tasks: Task<()> = Task::new();
             let data_arc_2 = Arc::clone(&data_arc);
             let data_arc_3 = Arc::clone(&data_arc);
+            let ctx = ui.ctx().clone();
             tasks.fire_async(async move {
                 match tag_list::load_repo_list(data_arc_2).await {
                     Ok(repos) => {
                         println!("OK repo load");
                         let mut data = data_arc_3.lock().await;
                         data.remote_repository_list_status = ListStatus::Loaded;
+                        ctx.request_repaint();
                     }
                     Err(_) => {
                         let mut data = data_arc_3.lock().await;
@@ -250,11 +252,13 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                 let mut tasks: Task<()> = Task::new();
                 let data_arc_2 = Arc::clone(&data_arc);
                 let data_arc_3 = Arc::clone(&data_arc);
+                let ctx = ui.ctx().clone();
                 tasks.fire_async(async move {
                     match tag_list::load_tag_list(data_arc_2, selected_repo).await {
                         Ok(_) => {
                             let mut data = data_arc_3.lock().await;
                             data.remote_tag_list_status = ListStatus::Loaded;
+                            ctx.request_repaint();
                         }
                         Err(_) => {
                             let mut data = data_arc_3.lock().await;
@@ -275,12 +279,14 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
             let mut tasks: Task<()> = Task::new();
             let data_arc_2 = Arc::clone(&data_arc);
             let data_arc_3 = Arc::clone(&data_arc);
+            let ctx = ui.ctx().clone();
             tasks.fire_async(async move {
                 match table_list::load_list_data(data_arc_2).await {
                     Ok(repos) => {
                         println!("OK repo load");
                         let mut data = data_arc_3.lock().await;
                         data.remote_image_list_status = ListStatus::Loaded;
+                        ctx.request_repaint();
                     }
                     Err(_) => {
                         let mut data = data_arc_3.lock().await;
@@ -290,10 +296,6 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
             });
         }
     }
-
-    // TODO selector
-
-    //    ui.add_space(4.0);
 
     ui.horizontal(|ui| {
         ui.label("Imágenes remotas:");

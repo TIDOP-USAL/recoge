@@ -180,7 +180,7 @@ impl MyApp {
     }
 
     // image: image name or digest
-    pub fn inspect_image(&mut self, image: Image, config: AppConfig) {
+    pub fn inspect_image(&mut self, image: Image, config: AppConfig, ctx: egui::Context) {
         let image_info_window_state_arc = Arc::clone(&self.image_info_window_state);
         let main_list_reload_flag_arc = Arc::clone(&self.image_list_should_reload);
         let window_is_loading = Arc::clone(&self.image_info_window_is_loading);
@@ -190,22 +190,25 @@ impl MyApp {
             let mut image_info_window_state = image_info_window_state_arc.lock().await;
             window_is_loading.store(Arc::new(true.to_owned()));
             let arc = Arc::clone(&image_info_window_state.data);
+            let arc_2 = Arc::clone(&image_info_window_state.data);
             let mut data = block_on(arc.lock());
             data.init(config, toasts_arc, main_list_reload_flag_arc)
                 .await;
+            drop(data);
             let input_data = image_info_window::ImageInspectInput {
                 id: image_info_window::ImageInspectType::LocalNamed(image.get_image_name()),
                 date: Some(image.date),
                 size_bytes: image.size_bytes,
             };
-            let _r = data.load_image_info(input_data).await;
+            let _r = image_info_window::load_image_info(arc_2, input_data).await;
             // TODO if ok
             window_is_loading.store(Arc::new(false.to_owned()));
             image_info_window_state.open();
+            ctx.request_repaint();
         });
     }
 
-    pub fn load_remote_list(&mut self, config: AppConfig) {
+    pub fn load_remote_list(&mut self, config: AppConfig, ctx: egui::Context) {
         let remote_list_window_state_arc = Arc::clone(&self.remote_list_window_state);
         let main_list_reload_flag_arc = Arc::clone(&self.image_list_should_reload);
         let window_is_loading = Arc::clone(&self.remote_list_window_is_loading);
@@ -221,6 +224,7 @@ impl MyApp {
             window_is_loading.store(Arc::new(false.to_owned()));
             if let Ok(_) = load_result {
                 remote_list_window_state.open();
+                ctx.request_repaint();
             } else {
                 println!("Returned an error");
             }
@@ -231,7 +235,7 @@ impl MyApp {
 impl Default for MyApp {
     fn default() -> Self {
         let mut image_list = Vec::new();
-        for i in 1..4 {
+        for i in 1..2 {
             image_list.push(Image {
                 repository_info: Some(container::RepositoryInfo {
                     repository: "cr.tidop.es/lcsc".to_string(),
@@ -383,7 +387,7 @@ impl eframe::App for MyApp {
                 .on_hover_text("Lista de imágenes remotas")
                 .clicked()
             {
-                self.load_remote_list(global_data.config.clone());
+                self.load_remote_list(global_data.config.clone(), ui.ctx().clone());
                 self.remote_list_window_is_loading
                     .store(Arc::new(true.to_owned()));
             }
@@ -598,11 +602,11 @@ impl MyApp {
                         let image_info_window_is_loading =
                             *self.image_info_window_is_loading.load().clone();
                         if !image_info_window_is_loading {
-                            println!("Info de {image_name}");
+                            println!("Inspect {image_name}");
 
                             self.image_info_window_is_loading
                                 .store(Arc::new(true.to_owned()));
-                            self.inspect_image(image.clone(), config.clone());
+                            self.inspect_image(image.clone(), config.clone(), ui.ctx().clone());
                         }
                     }
                 });
