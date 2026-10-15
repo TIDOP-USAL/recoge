@@ -97,7 +97,7 @@ impl ImageCollection {
             images.push(Image {
                 repository_info: Some(repo_info.clone()),
                 size_bytes: self.size_bytes,
-                id: self.image_digests.first().unwrap_or(&self.id).clone(),
+                id: self.get_id_value(),
                 digests: self.image_digests.clone(),
                 date: self.date,
             });
