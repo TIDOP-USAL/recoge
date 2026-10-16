@@ -174,6 +174,15 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
     ui.separator();
     ui.add_space(4.0);
     ui.horizontal(|ui| {
+        if ui
+            .button("📂")
+            .on_hover_text("Abrir directorio de configuración")
+            .clicked()
+        {
+            let config_dir = crate::configuration::get_config_dir_path().unwrap();
+            open::that(config_dir);
+        }
+
         let mut bottom_btn_ui = ui.new_child(
             UiBuilder::new()
                 .max_rect(ui.max_rect())
