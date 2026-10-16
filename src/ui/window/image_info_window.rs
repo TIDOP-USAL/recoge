@@ -1,9 +1,9 @@
+use super::{WindowOptions, WindowSize};
 use crate::configuration::AppConfig;
 use crate::container;
 use crate::container::ImageCollection;
 use crate::error::{Error, Result};
 use crate::tasks::Task;
-use crate::window::{WindowOptions, WindowSize};
 use crate::zot;
 use crate::zot::ImageDisplayMetadata;
 use bollard::config::ImageDeleteResponseItem;
@@ -543,7 +543,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                     }
                     RemoteImageStatus::Missing => {
                         if remote_images_metadata.len() > 1 {
-                            ("No con este nombre", "Puede estar subida con otro nombre")
+                            ("No con este nombre", "La imagen está en el Registro, pero no con el nombre local")
                         } else {
                             ("No", "No se encuentra la imagen según identificador o por nombre y fecha")
                         }

@@ -1,8 +1,8 @@
 // TODO change to modal
+use super::WindowOptions;
 use crate::configuration::AppConfig;
 use crate::tasks::Task;
 use crate::ui::GlobalData;
-use crate::window::WindowOptions;
 use crate::zot;
 use eframe::egui;
 use egui::{Align, Layout, UiBuilder};

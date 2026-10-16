@@ -1,7 +1,7 @@
+use super::WindowOptions;
 use crate::configuration::AppConfig;
 use crate::container;
 use crate::tasks::Task;
-use crate::window::WindowOptions;
 use crate::zot;
 use bollard::config::PushImageInfo;
 use eframe::egui;

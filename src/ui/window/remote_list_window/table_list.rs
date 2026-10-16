@@ -2,10 +2,10 @@ use super::{
     ImageTableOptions, TableSortType, WindowData, delete_modal::ModalData as DeleteModalData,
     pull_modal::ModalData as PullModalData,
 };
+use super::{WindowOptions, WindowSize};
 use crate::configuration::AppConfig;
 use crate::container;
 use crate::tasks::Task;
-use crate::window::{WindowOptions, WindowSize};
 use crate::zot;
 use eframe::egui;
 use egui::containers::scroll_area::DragScroll;
@@ -14,21 +14,12 @@ use egui_extras::{Column, TableBuilder};
 use futures::lock::Mutex as AsyncMutex;
 use std::sync::Arc;
 
-pub async fn load_repo_list(data: Arc<AsyncMutex<WindowData>>) -> Result<Vec<String>, ()> {
+pub async fn load_list_data(data: Arc<AsyncMutex<WindowData>>) -> Result<(), ()> {
     let data_locked = data.lock().await;
     let toasts = Arc::clone(&data_locked.toasts_arc);
     let config = data_locked.app_config.clone();
+    let list_mode = data_locked.remote_image_list_mode.clone();
     drop(data_locked);
-    let remote_repository_list = get_repo_list(&config, toasts).await?;
-    let mut data_locked = data.lock().await;
-    data_locked.remote_repository_list = remote_repository_list.clone();
-    Ok(remote_repository_list)
-}
-
-pub async fn get_repo_list(
-    config: &AppConfig,
-    toasts: Arc<AsyncMutex<egui_notify::Toasts>>,
-) -> Result<Vec<String>, ()> {
     let Ok(mut client) = zot::Client::new(&config) else {
         let mut toasts = toasts.lock().await;
         toasts
@@ -36,43 +27,15 @@ pub async fn get_repo_list(
             .duration(std::time::Duration::from_secs(3));
         return Err(());
     };
-    println!("Loading remote repository list");
-    let mut remote_repository_list = match client.get_repository_list().await {
-        Ok(x) => x,
-        Err(x) => {
-            println!("error: {x:?}");
-            toasts
-                .lock()
-                .await
-                .error("Error de conexión. Comprueba las credenciales del Registro.")
-                .duration(std::time::Duration::from_secs(3));
-            return Err(());
+
+    println!("Loading remote image list");
+    let list_result = match list_mode {
+        super::RemoteImageListMode::All => client.get_image_list().await,
+        super::RemoteImageListMode::LastRepoImage => {
+            client.get_repository_list_with_newest_image().await
         }
     };
-    println!("{remote_repository_list:#?}");
-    remote_repository_list.sort();
-    Ok(remote_repository_list)
-}
-
-pub async fn load_tag_list(
-    data: Arc<AsyncMutex<WindowData>>,
-    repository: String,
-) -> Result<(), ()> {
-    let data_locked = data.lock().await;
-    let toasts = Arc::clone(&data_locked.toasts_arc);
-    drop(data_locked);
-    let data_locked = data.lock().await;
-    let config = data_locked.app_config.clone();
-    drop(data_locked);
-    let Ok(mut client) = zot::Client::new(&config) else {
-        let mut toasts = toasts.lock().await;
-        toasts
-            .error("Error de conexión. Comprueba las credenciales del Registro.")
-            .duration(std::time::Duration::from_secs(3));
-        return Err(());
-    };
-    println!("Loading remote tag list for {repository}");
-    let mut remote_image_list = match client.get_repo_images(repository).await {
+    let mut remote_image_list = match list_result {
         Ok(x) => x,
         Err(x) => {
             println!("error: {x:?}");
@@ -88,8 +51,8 @@ pub async fn load_tag_list(
     remote_image_list.reverse();
     println!("{remote_image_list:#?}");
     let mut data_locked = data.lock().await;
-    data_locked.remote_tag_list = remote_image_list;
-    Ok(())
+    data_locked.remote_image_list = remote_image_list;
+    return Ok(());
 }
 
 pub fn table_ui(
@@ -112,20 +75,20 @@ pub fn table_ui(
         .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
         .column(
             Column::remainder()
+                .at_least(10.0)
                 .clip(true)
                 .resizable(true)
-                .at_least(120.0)
-                .at_most(500.0),
+                .at_least(200.0),
         )
-        .column(Column::auto().resizable(false).at_least(65.0))
-        .column(Column::auto().resizable(false).at_least(90.0))
+        .column(Column::auto().resizable(false))
+        .column(Column::auto().resizable(false))
         .column(Column::auto().resizable(false))
         .min_scrolled_height(0.0)
         .max_scroll_height(available_height)
         .header(20.0, |mut header| {
             header.col(|ui| {
                 ui.horizontal(|ui| {
-                    ui.strong("Tag");
+                    ui.strong("Nombre de imagen");
                     let btn = ui
                         .button(if name_rev { "⬇" } else { "⬆" })
                         .on_hover_text(if name_rev { "A-Z" } else { "Z-A" });
@@ -192,12 +155,11 @@ fn image_table_row(
     let row_height = 18.0;
     body.row(row_height, |mut row| {
         row.col(|ui| {
-            let image_repo_info = image.repository_info.clone().unwrap();
             let mut image_name = image.get_image_name();
             if !image_name.contains(':') {
                 image_name.push_str(" (Sin nombre)");
             }
-            ui.label(image_repo_info.tag)
+            ui.label(image_name.to_string())
                 .on_hover_text(image_name.clone());
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
@@ -256,7 +218,7 @@ fn sort_table(options: ImageTableOptions, list: &mut Vec<container::Image>) {
             }
         }
         TableSortType::Name => {
-            list.sort_by_key(|x| x.repository_info.as_ref().unwrap().tag.clone());
+            list.sort_by_key(|x| x.repository_info.as_ref().unwrap().repository.clone());
             if !options.ui_name_rev {
                 list.reverse();
             }

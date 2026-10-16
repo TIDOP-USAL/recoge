@@ -1,19 +1,21 @@
+pub mod main_list;
+pub mod window;
+
 use crate::configuration as config;
 use crate::container;
 use crate::tasks::Task;
-use crate::window;
-use crate::window::WindowOptions;
 use arc_swap::ArcSwap;
 use config::AppConfig;
 use container::Image;
 use eframe::egui;
-use egui::containers::scroll_area::DragScroll;
+use main_list::TableSortType;
+use window::WindowOptions;
+
 use egui::{Align, Layout, UiBuilder};
-use egui_extras::Column;
-use egui_extras::TableBuilder;
 use egui_notify::Toasts;
 use futures::executor::block_on;
 use futures::lock::Mutex as AsyncMutex;
+use main_list::ImageTableOptions;
 use std::sync::{Arc, Mutex};
 use window::config_window;
 use window::image_info_window;
@@ -21,14 +23,13 @@ use window::remote_list_window;
 use window::upload_window;
 
 pub fn ui_start() -> eframe::Result {
-    let a = std::include_bytes!("assets/icon.png");
-    let image = image::load_from_memory(a)
+    let icon = std::include_bytes!("../assets/icon.png");
+    let rgba = image::load_from_memory(icon)
         .expect("Failed to open icon path")
-        .into_rgba8();
-    //let (width, height) = image.dimensions();
+        .into_rgba8()
+        .into_raw();
     let width = 512;
     let height = 512;
-    let rgba = image.into_raw();
     let icon = egui::viewport::IconData {
         rgba,
         width,
@@ -59,21 +60,6 @@ pub fn ui_start() -> eframe::Result {
             Ok(Box::<MyApp>::default())
         }),
     )
-}
-
-#[derive(Debug, Clone)]
-pub struct ImageTableOptions {
-    search_field: Option<String>, // None: disabled
-    sort_type: TableSortType,
-    ui_date_rev: bool, // 0: ASC
-    ui_name_rev: bool, // 0: A-Z
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum TableSortType {
-    None,
-    Date,
-    Name,
 }
 
 #[derive(PartialEq, Clone)]
@@ -344,7 +330,7 @@ impl eframe::App for MyApp {
 
         egui::CentralPanel::default().show(ui, |ui| {
             ui.horizontal(|ui| {
-                let logo = egui::include_image!("assets/logo.svg");
+                let logo = egui::include_image!("../assets/logo.svg");
                 ui.set_height(20.4);
                 ui.add_space(1.0);
                 ui.add(egui::Image::new(logo.clone()));
@@ -446,10 +432,6 @@ impl eframe::App for MyApp {
             ui.add_space(6.0);
             ui.separator();
             ui.add_space(5.0);
-            let date_rev = self.image_table_options.ui_date_rev.clone();
-            let name_rev = self.image_table_options.ui_name_rev.clone();
-            let sort_type = self.image_table_options.sort_type.clone();
-            let available_height = ui.available_height();
 
             let mut table_ui = ui.new_child(UiBuilder::new());
             match *self.image_list_load_state.lock().unwrap() {
@@ -458,196 +440,11 @@ impl eframe::App for MyApp {
                 }
                 _ => {}
             }
-            let _table = TableBuilder::new(&mut table_ui)
-                .striped(true)
-                .resizable(true)
-                .auto_shrink(false)
-                .drag_to_scroll(DragScroll::Always)
-                .cell_layout(egui::Layout::left_to_right(egui::Align::LEFT))
-                .column(
-                    Column::remainder()
-                        //.at_least(80.0)
-                        .clip(true)
-                        .resizable(true),
-                )
-                .column(Column::auto().resizable(false).at_least(65.0))
-                .column(Column::auto().resizable(false).at_least(89.0))
-                .column(Column::auto().resizable(false))
-                .min_scrolled_height(0.0)
-                .max_scroll_height(available_height)
-                .header(21.0, |mut header| {
-                    header.col(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.strong("Nombre local").on_hover_text(
-                                "Nombre de la imagen de contenedor, en formato repositorio:tag",
-                            );
-                            let btn = ui
-                                .button(if name_rev { "⬇" } else { "⬆" })
-                                .on_hover_text(if name_rev { "A-Z" } else { "Z-A" });
-                            if sort_type == TableSortType::Name {
-                                btn.clone().highlight();
-                            }
-                            if btn.clicked() {
-                                self.image_table_options.ui_name_rev ^= true;
-                                self.image_table_options.sort_type = TableSortType::Name;
-                                self.sort_table();
-                            }
-                        });
-                    });
-                    header.col(|ui| {
-                        ui.strong("Tamaño");
-                    });
-                    header.col(|ui| {
-                        ui.strong("ID local");
-                    });
-                    header.col(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.strong("Fecha de creación");
-                            let btn = ui.button(if date_rev { "⬇" } else { "⬆" }).on_hover_text(
-                                if date_rev {
-                                    "Descendente"
-                                } else {
-                                    "Ascendente"
-                                },
-                            );
-                            if sort_type == TableSortType::Date {
-                                btn.clone().highlight();
-                            }
-                            if btn.clicked() {
-                                self.image_table_options.ui_date_rev ^= true;
-                                self.image_table_options.sort_type = TableSortType::Date;
-                                self.sort_table();
-                            }
-                        });
-                    });
-                })
-                .body(|mut body| {
-                    let image_list: Vec<Image> = self.image_list.lock().unwrap().to_vec();
-                    for image in image_list.iter() {
-                        // TODO global filtered list
-                        if let Some(search_filter) = self.image_table_options.search_field.clone() {
-                            if !image.get_image_name().contains(&search_filter) {
-                                continue;
-                            }
-                        }
-                        self.image_table_row(
-                            &global_data.config,
-                            image,
-                            &mut body,
-                            upload_window_state,
-                        );
-                    }
-                });
+            drop(global_data);
+            main_list::image_list_table(&mut table_ui, self, upload_window_state);
             if !table_ui.response().contains_pointer() && self.image_list_hovered_id.is_some() {
                 self.image_list_hovered_id = None;
             }
         });
-    }
-}
-
-impl MyApp {
-    fn image_table_row(
-        &mut self,
-        config: &AppConfig,
-        image: &Image,
-        body: &mut egui_extras::TableBody,
-        upload_window_state: &mut upload_window::WindowState,
-    ) {
-        let row_height = 18.0;
-        body.row(row_height, |mut row| {
-            row.col(|ui| {
-                let mut image_name = image.get_image_name();
-                if !image_name.contains(':') {
-                    image_name.push_str(" (Sin nombre)");
-                }
-                let label = egui::Label::new(image_name.to_string());
-                let rect = ui.add(label).on_hover_text(image_name.clone()).rect;
-                if let Some(hid) = &self.image_list_hovered_id
-                    && *hid == image.id
-                {
-                    let color = egui::Color32::from_rgb(165, 238, 0);
-                    ui.debug_painter().rect(
-                        rect,
-                        0.0,
-                        egui::Color32::TRANSPARENT,
-                        (1.0, color),
-                        egui::StrokeKind::Outside,
-                    );
-                }
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
-                    if ui.button("⬆").on_hover_text("Subir a Registro").clicked() {
-                        //*boolean = !*boolean;
-                        println!("Subir {image_name}");
-                        let Ok(selected_repo_info) =
-                            container::RepositoryInfo::try_from_repo_tag(image_name.clone())
-                        else {
-                            eprintln!("Invalid repo_tag");
-                            return;
-                        };
-                        upload_window_state.open(config.clone(), selected_repo_info);
-                    }
-                    if ui
-                        .button("ℹ")
-                        .on_hover_text("Información de la imagen")
-                        .clicked()
-                    {
-                        let image_info_window_is_loading =
-                            *self.image_info_window_is_loading.load().clone();
-                        if !image_info_window_is_loading {
-                            println!("Inspect {image_name}");
-
-                            self.image_info_window_is_loading
-                                .store(Arc::new(true.to_owned()));
-                            self.inspect_image(image.clone(), config.clone(), ui.ctx().clone());
-                        }
-                    }
-                });
-            });
-            row.col(|ui| {
-                ui.label(image.get_human_size());
-            });
-            row.col(|ui| {
-                //ui.add(egui::Separator::default().horizontal());
-                if ui
-                    .label(image.get_short_id())
-                    .on_hover_text(image.id.clone())
-                    .hovered()
-                {
-                    self.image_list_hovered_id = Some(image.id.clone());
-                }
-            });
-            row.col(|ui| {
-                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
-                ui.label(format!(
-                    "({}) {}",
-                    image.get_relative_date(),
-                    image.get_date_local()
-                ));
-            });
-            //self.toggle_row_selection(row_index, &row.response());
-        });
-    }
-
-    fn sort_table(&mut self) {
-        let options = self.image_table_options.clone();
-        println!("Sorting image table: {options:#?}");
-        match options.sort_type {
-            TableSortType::None => {}
-            TableSortType::Date => {
-                let mut image_list = self.image_list.lock().unwrap();
-                image_list.sort_by_key(|x| x.date); // Oldest image first
-                if options.ui_date_rev {
-                    image_list.reverse();
-                }
-            }
-            TableSortType::Name => {
-                let mut image_list = self.image_list.lock().unwrap();
-                image_list.sort_by_key(|x| x.repository_info.as_ref().unwrap().repository.clone());
-                if !options.ui_name_rev {
-                    image_list.reverse();
-                }
-            }
-        }
     }
 }

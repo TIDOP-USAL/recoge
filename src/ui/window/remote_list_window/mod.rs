@@ -3,10 +3,10 @@ pub mod pull_modal;
 pub mod table_list;
 pub mod tag_list;
 
+use super::{WindowOptions, WindowSize};
 use crate::configuration::AppConfig;
 use crate::container;
 use crate::tasks::Task;
-use crate::window::{WindowOptions, WindowSize};
 use crate::zot;
 use bollard::config::CreateImageInfo;
 use eframe::egui;

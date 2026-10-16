@@ -6,7 +6,6 @@ pub mod container;
 pub mod error;
 pub mod tasks;
 pub mod ui;
-pub mod window;
 pub mod zot;
 
 fn main() {
