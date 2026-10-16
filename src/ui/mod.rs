@@ -49,7 +49,7 @@ pub fn ui_start() -> eframe::Result {
         "recoge",
         options,
         Box::new(|cc| {
-            // This gives us image support:
+            // Add image support:
             egui_extras::install_image_loaders(&cc.egui_ctx);
             //  Get light/dark theme
             let theme = match dark_light::detect()? {
@@ -141,9 +141,8 @@ impl MyApp {
         self.tasks.fire_async(async move {
             let Ok(docker) = container::Client::new().await else {
                 *image_list_load_state_arc.lock().unwrap() = LoadState::NotLoaded;
-                toasts_arc
-                    .lock()
-                    .await
+                let mut toasts = toasts_arc.lock().await;
+                toasts
                     .error("Error de conexión. Comprueba que Docker esté funcionando.")
                     .duration(std::time::Duration::from_secs(5));
                 return;

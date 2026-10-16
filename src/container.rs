@@ -9,62 +9,6 @@ use futures_lite::stream::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex, mpsc::SyncSender};
 
-/*
-#[allow(non_snake_case, non_camel_case_types)]
-#[derive(serde::Deserialize, Debug)]
-pub struct NativeImage {
-    pub Id: String,
-    pub Size: i64, // TODO a enum. string ok en docker, bytes en podman (o virtualsize)
-    pub Containers: u64,
-    pub Labels: Option<HashMap<String, String>>,
-    pub Digest: String,
-    pub Created: Option<i64>,
-    pub CreatedAt: Option<String>,
-}
-
-pub type NativeImageList = Vec<NativeImage>;
-
-pub fn get_image_list()-> Vec<Image> {
-    let mut list = Vec::new();
-    let cmd = "docker image ls --format json";
-    let output = if cfg!(target_os = "windows") {
-    Command::new("cmd")
-            .args(["/C", cmd])
-            .output()
-            .expect("failed to execute process")
-    } else {
-    Command::new("sh")
-            .arg("-c")
-            .arg(cmd)
-            .output()
-            .expect("failed to execute process")
-    };
-    println!("{output:?}");
-    if !output.status.success() {
-    println!("Error on cmd");
-    return list;
-    }
-    let str = str::from_utf8(&output.stdout).expect("Non utf8 characters in cmd out");
-    // TODO: comprobar primer caracter. Si "[": Podman., si no son líneas de Docker
-    let native_list: NativeImageList = serde_json::from_str(str).expect("Can't parse");
-    //println!("{native_list:?}");
-
-    for image in native_list {
-    if let Some(labels)= image.Labels  {
-        let name = labels.get("org.opencontainers.image.base.name").unwrap_or(&"no label".to_string()).to_string();
-        list.push({
-        Image { name,
-            size_bytes: image.Size,
-            digest: image.Digest,
-            date: format!("{:?}",image.Created),
-        }
-        });
-    };
-    }
-    list
-}
-*/
-
 // All aliases for one image. All repos, tags, digests.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ImageCollection {
@@ -442,6 +386,7 @@ impl Client {
         }
     }
 
+    // TODO this does not always work on Podman
     pub async fn image_add_tag(&self, image: String, new_repo_tag: String) -> Result<()> {
         let docker = &self.client;
         let repo_info = RepositoryInfo::try_from_repo_tag(new_repo_tag)?;
