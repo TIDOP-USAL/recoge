@@ -82,6 +82,16 @@ impl ModalData {
                         };
                         ui.code(image_name);
                     });
+		    ui.end_row();
+
+		    if let Some(size) = self.image.size_bytes {
+			let size = size as f32;
+			ui.label("Tamaño estimado:");
+			let size_min = humansize::format_size(f32::round(size * 3.0) as u64, humansize::DECIMAL);
+			let size_max = humansize::format_size(f32::round(size * 5.0) as u64, humansize::DECIMAL);
+			ui.label(format!("Entre {size_min} y {size_max}")).on_hover_text("Estimación del tamaño que ocupará en local, según el tamaño comprimido en Registro");
+			ui.end_row();
+		    }
                 });
             ui.add_space(20.0);
 
