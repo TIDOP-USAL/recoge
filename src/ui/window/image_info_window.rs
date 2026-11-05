@@ -476,9 +476,6 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                             let image_name = image.get_image();
                             ui.label(&image_name);
                             ui.horizontal(|ui| {
-                                if ui.button("📋").on_hover_text("Copiar nombre").clicked() {
-                                    ui.ctx().copy_text(image_name.clone());
-                                }
                                 if ui
                                     .button("ℹ")
                                     .on_hover_text("Información de esta imagen")
@@ -486,12 +483,16 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                                 {
                                     println!("Change dialog to {image_name}");
                                     let arc = Arc::clone(&data_arc_2);
+                                    let image_name = image_name.clone();
                                     Task::new().fire_async(async move {
                                         let mut data = arc.lock().await;
                                         data.data_is_reloading = true;
                                         let _r = data.swap_image_info(image_name).await;
                                     });
                                 }
+                                /*if ui.button("📋").on_hover_text("Copiar nombre").clicked() {
+                                    ui.ctx().copy_text(image_name);
+                                }*/
                             });
                             ui.end_row();
                         }

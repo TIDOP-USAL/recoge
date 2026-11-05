@@ -112,7 +112,7 @@ pub fn table_ui(
             });
             header.col(|ui| {
                 ui.horizontal(|ui| {
-                    ui.strong("Fecha de subida");
+                    ui.strong("Fecha de creación");
                     let btn =
                         ui.button(if date_rev { "⬇" } else { "⬆" })
                             .on_hover_text(if date_rev {
