@@ -1,6 +1,5 @@
 use crate::configuration::AppConfig;
 use crate::container::{Image, RepositoryInfo};
-use crate::ui::upload_window;
 use eframe::egui;
 use egui::containers::scroll_area::DragScroll;
 use egui_extras::Column;
@@ -23,11 +22,7 @@ pub enum TableSortType {
     Name,
 }
 
-pub fn image_list_table(
-    mut ui: &mut egui::Ui,
-    app: &mut super::MyApp,
-    upload_window_state: &mut upload_window::WindowState,
-) {
+pub fn image_list_table(mut ui: &mut egui::Ui, app: &mut super::MyApp) {
     let global_data_arc = Arc::clone(&app.global_data);
     let global_data = block_on(global_data_arc.lock().into_future());
     let config = global_data.config.clone();
@@ -108,7 +103,7 @@ pub fn image_list_table(
                         continue;
                     }
                 }
-                image_table_row(app, &config, image, &mut body, upload_window_state);
+                image_table_row(app, &config, image, &mut body);
             }
         });
 }
@@ -140,7 +135,7 @@ fn image_table_row(
     config: &AppConfig,
     image: &Image,
     body: &mut egui_extras::TableBody,
-    upload_window_state: &mut upload_window::WindowState,
+    //upload_window_state: &mut upload_window::WindowState,
 ) {
     let row_height = 18.0;
     body.row(row_height, |mut row| {
@@ -174,7 +169,9 @@ fn image_table_row(
                         eprintln!("Invalid repo_tag");
                         return;
                     };
-                    upload_window_state.open(config.clone(), selected_repo_info);
+                    *Arc::clone(&app.upload_window_open_flag).lock().unwrap() =
+                        Some(selected_repo_info);
+                    //upload_window_state.open(config.clone(), selected_repo_info);
                 }
                 if ui
                     .button("ℹ")

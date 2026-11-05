@@ -96,6 +96,7 @@ pub struct MyApp {
     image_list_hovered_id: Option<String>,
     tasks: Task<()>,
     upload_window_state: Arc<Mutex<upload_window::WindowState>>,
+    upload_window_open_flag: Arc<Mutex<Option<container::RepositoryInfo>>>,
     image_info_window_state: Arc<AsyncMutex<image_info_window::WindowState>>,
     image_info_window_is_loading: Arc<ArcSwap<bool>>,
     remote_list_window_state: Arc<AsyncMutex<remote_list_window::WindowState>>,
@@ -174,6 +175,7 @@ impl MyApp {
         let image_info_window_state_arc = Arc::clone(&self.image_info_window_state);
         let main_list_reload_flag_arc = Arc::clone(&self.image_list_should_reload);
         let window_is_loading = Arc::clone(&self.image_info_window_is_loading);
+        let upload_window_open_flag_arc = Arc::clone(&self.upload_window_open_flag);
         let toasts_arc = Arc::clone(&self.toasts);
 
         self.tasks.fire_async(async move {
@@ -182,8 +184,13 @@ impl MyApp {
             let arc = Arc::clone(&image_info_window_state.data);
             let arc_2 = Arc::clone(&image_info_window_state.data);
             let mut data = block_on(arc.lock());
-            data.init(config, toasts_arc, main_list_reload_flag_arc)
-                .await;
+            data.init(
+                config,
+                toasts_arc,
+                main_list_reload_flag_arc,
+                upload_window_open_flag_arc,
+            )
+            .await;
             drop(data);
             let input_data = image_info_window::ImageInspectInput {
                 id: image_info_window::ImageInspectType::LocalNamed(image.get_image_name()),
@@ -245,6 +252,7 @@ impl Default for MyApp {
             image_list_hovered_id: None,
             tasks: Task::new(),
             upload_window_state: Arc::new(Mutex::new(upload_window::WindowState::default())),
+            upload_window_open_flag: Arc::new(Mutex::new(None)),
             config_window_state: Arc::new(Mutex::new(config_window::WindowState::default())),
             remote_list_window_state: Arc::new(AsyncMutex::new(
                 remote_list_window::WindowState::default(),
@@ -273,6 +281,7 @@ impl eframe::App for MyApp {
         drop(toasts);
 
         let upload_window_state_arc = Arc::clone(&self.upload_window_state);
+        //	let upload_window_state_arc2 = Arc::clone(&self.upload_window_state);
         let upload_window_state = &mut *upload_window_state_arc.lock().unwrap();
         WindowOptions::show(
             &mut upload_window_state.options,
@@ -398,6 +407,15 @@ impl eframe::App for MyApp {
                 *self.image_list_load_state.lock().unwrap() = LoadState::NeedsReload;
             }
 
+            let upload_window_open_flag = self.upload_window_open_flag.lock().unwrap().clone();
+            if let Some(repo) = upload_window_open_flag {
+                println!("Open upload window for {repo:?}");
+                let mut upload_window_open_flag = self.upload_window_open_flag.lock().unwrap();
+                *upload_window_open_flag = None;
+                drop(upload_window_open_flag);
+                upload_window_state.open(global_data.config.clone(), repo);
+            }
+
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.label("Imágenes locales:".to_string());
@@ -440,7 +458,7 @@ impl eframe::App for MyApp {
                 _ => {}
             }
             drop(global_data);
-            main_list::image_list_table(&mut table_ui, self, upload_window_state);
+            main_list::image_list_table(&mut table_ui, self);
             if !table_ui.response().contains_pointer() && self.image_list_hovered_id.is_some() {
                 self.image_list_hovered_id = None;
             }

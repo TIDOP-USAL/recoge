@@ -65,6 +65,7 @@ pub struct WindowData {
     pub global_config: AppConfig,
     pub toasts_arc: Arc<AsyncMutex<Toasts>>,
     pub main_list_reload_flag: Arc<Mutex<bool>>,
+    pub upload_window_state_flag_arc: Arc<Mutex<Option<container::RepositoryInfo>>>,
     pub image_data: Option<ImageData>,
     pub data_is_reloading: bool,
 }
@@ -337,10 +338,12 @@ impl WindowData {
         config: AppConfig,
         toasts_arc: Arc<AsyncMutex<Toasts>>,
         main_list_reload_flag_arc: Arc<Mutex<bool>>,
+        upload_window_state_flag_arc: Arc<Mutex<Option<container::RepositoryInfo>>>,
     ) {
         let data = self;
         data.toasts_arc = toasts_arc;
         data.main_list_reload_flag = main_list_reload_flag_arc;
+        data.upload_window_state_flag_arc = upload_window_state_flag_arc;
         data.global_config = config;
     }
 
@@ -376,7 +379,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
     if data.data_is_reloading {
         ui.set_cursor_icon(egui::CursorIcon::Wait);
     }
-
+    let upload_window_open_flag_arc = Arc::clone(&data.upload_window_state_flag_arc);
     let Some(image_data) = data.image_data.clone() else {
         eprintln!("Window opened without selected_image_name");
         ui.close_kind(egui::UiKind::Window);
@@ -430,12 +433,24 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                         global_config: _,
                         toasts_arc: _,
                         main_list_reload_flag: _,
+                        upload_window_state_flag_arc: _,
                         image_data,
                         data_is_reloading: _,
                     } = &mut *data;
                     image_data.as_mut().unwrap().delete_modal_data =
                         Some(ModalData::new(selected_image_name.clone()));
                     drop(data);
+                }
+                if ui.button("⬆").on_hover_text("Subir a Registro").clicked() {
+                    let image_name = selected_image_name.clone();
+                    println!("Subir {image_name}");
+                    let Ok(selected_repo_info) =
+                        container::RepositoryInfo::try_from_repo_tag(image_name.clone())
+                    else {
+                        eprintln!("Invalid repo_tag");
+                        return;
+                    };
+                    *upload_window_open_flag_arc.lock().unwrap() = Some(selected_repo_info);
                 }
 
                 ui.add_sized(ui.available_size(), egui::Label::new("")); // fill grid
@@ -593,6 +608,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
         global_config: _,
         toasts_arc: _,
         main_list_reload_flag,
+        upload_window_state_flag_arc: _,
         image_data,
         data_is_reloading: _,
     } = &mut *data;
