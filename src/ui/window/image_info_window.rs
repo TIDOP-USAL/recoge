@@ -491,7 +491,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                                     });
                                 }
                                 /*if ui.button("📋").on_hover_text("Copiar nombre").clicked() {
-                                    ui.ctx().copy_text(image_name);
+                                        ui.ctx().copy_text(image_name);
                                 }*/
                             });
                             ui.end_row();

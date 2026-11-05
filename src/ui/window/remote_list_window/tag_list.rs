@@ -21,7 +21,37 @@ pub async fn load_repo_list(data: Arc<AsyncMutex<WindowData>>) -> Result<Vec<Str
     drop(data_locked);
     let remote_repository_list = get_repo_list(&config, toasts).await?;
     let mut data_locked = data.lock().await;
+    // Unnested list
     data_locked.remote_repository_list = remote_repository_list.clone();
+    
+    // Nested list
+    println!("UPDATING NESTED LIST");
+    data_locked.remote_repository_nested_list.clear();
+    let mut filled_directories = Vec::new();
+    for repo in &remote_repository_list {
+        // Follow A-Z order
+        let parts: Vec<&str> = repo.split('/').collect();
+        if repo.contains('/')
+            && let Some(dir) = parts.first()
+        {
+            if filled_directories.contains(dir) {
+                continue;
+            }
+            let matching_full_repos: Vec<String> = remote_repository_list
+                .iter()
+                .filter(|x| x.starts_with(&format!("{dir}/")))
+                .map(|x| x[(dir.len() + 1..)].to_string())
+                .collect();
+            let dir_item =
+                super::NestedRepoListItem::Directory((dir.to_string(), matching_full_repos));
+            data_locked.remote_repository_nested_list.push(dir_item);
+            filled_directories.push(dir);
+        } else {
+            let repo_item = super::NestedRepoListItem::Repo(repo.to_string());
+            data_locked.remote_repository_nested_list.push(repo_item);
+        }
+    }
+    
     Ok(remote_repository_list)
 }
 

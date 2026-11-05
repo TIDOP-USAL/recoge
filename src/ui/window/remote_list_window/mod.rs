@@ -67,8 +67,37 @@ impl WindowData {
 
     pub async fn load_repo_list(&mut self) -> Result<Vec<String>, ()> {
         let toasts_arc = Arc::clone(&self.toasts_arc);
-        let repos = tag_list::get_repo_list(&self.app_config, toasts_arc).await?;
+        let mut repos: Vec<String> = tag_list::get_repo_list(&self.app_config, toasts_arc).await?;
+        // Unnested list
         self.remote_repository_list = repos.clone();
+
+        // Nested list
+        let mut filled_directories = Vec::new();
+        for repo in &repos {
+            // Follow A-Z order
+            let parts: Vec<&str> = repo.split('/').collect();
+            if repo.contains('/')
+                && let Some(dir) = parts.first()
+            {
+                if filled_directories.contains(dir) {
+                    continue;
+                }
+                let matching_full_repos: Vec<String> = repos
+                    .iter()
+                    .filter(|x| x.starts_with(&format!("{dir}/")))
+                    .map(|x| x[(dir.len() + 1..)].to_string())
+                    .collect();
+                let dir_item =
+                    NestedRepoListItem::Directory((dir.to_string(), matching_full_repos));
+                self.remote_repository_nested_list.push(dir_item);
+                filled_directories.push(dir);
+            } else {
+                let repo_item = NestedRepoListItem::Repo(repo.to_string());
+                self.remote_repository_nested_list.push(repo_item);
+            }
+        }
+        //println!("nested: {:#?}", self.remote_repository_nested_list);
+	// TODO remove this code from here, only set the NeedsReload flag, to trigger tag_list::load_repo_list.
         Ok(repos)
     }
 }
@@ -88,13 +117,21 @@ pub fn window_options() -> WindowOptions {
     }
 }
 
+#[derive(Debug)]
+pub enum NestedRepoListItem {
+    Repo(String),
+    Directory((String, Vec<String>)),
+}
+
 pub struct WindowData {
-    pub display_mode: DisplayMode,
+    pub list_display_mode: ListDisplayMode,
+    pub repositories_display_mode: RepositoriesDisplayMode,
     pub main_list_reload_flag: Arc<Mutex<bool>>,
     pub app_config: AppConfig,
     // Repo tag list
     pub remote_repository_list_status: ListStatus,
     pub remote_repository_list: Vec<String>,
+    pub remote_repository_nested_list: Vec<NestedRepoListItem>,
     pub selected_repository: Option<String>,
     pub remote_tag_list_status: ListStatus,
     pub remote_tag_list: Vec<container::Image>,
@@ -118,7 +155,7 @@ pub enum ListStatus {
 }
 
 #[derive(PartialEq)]
-pub enum DisplayMode {
+pub enum ListDisplayMode {
     ImageList,
     RepoTagList,
 }
@@ -129,14 +166,22 @@ pub enum RemoteImageListMode {
     LastRepoImage,
 }
 
+#[derive(PartialEq)]
+pub enum RepositoriesDisplayMode {
+    Nested,
+    Unnested,
+}
+
 impl Default for WindowData {
     fn default() -> Self {
         Self {
-            display_mode: DisplayMode::RepoTagList,
+            list_display_mode: ListDisplayMode::RepoTagList,
+            repositories_display_mode: RepositoriesDisplayMode::Nested,
             main_list_reload_flag: Arc::default(),
             app_config: AppConfig::default(),
             remote_repository_list_status: ListStatus::NotLoaded,
             remote_repository_list: Vec::new(),
+            remote_repository_nested_list: Vec::new(),
             selected_repository: None,
             remote_tag_list_status: ListStatus::NeedsReload,
             remote_tag_list: Vec::new(),
@@ -190,11 +235,13 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
     let data_arc_1 = Arc::clone(&data_arc);
     let mut data = block_on(data_arc_1.lock().into_future());
     let WindowData {
-        display_mode,
+        list_display_mode,
+        repositories_display_mode,
         main_list_reload_flag,
         app_config,
         remote_repository_list_status,
         remote_repository_list,
+        remote_repository_nested_list,
         selected_repository,
         remote_tag_list_status,
         remote_tag_list,
@@ -215,7 +262,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
     };*/
 
     // Table data load/reload logic
-    if *display_mode == DisplayMode::RepoTagList {
+    if *list_display_mode == ListDisplayMode::RepoTagList {
         // Repo list update logic (async)
         if *remote_repository_list_status != ListStatus::Loaded {
             ui.disable();
@@ -301,21 +348,21 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
     ui.horizontal(|ui| {
         ui.label("Imágenes remotas:");
         ui.selectable_value(
-            display_mode,
-            DisplayMode::RepoTagList,
+            list_display_mode,
+            ListDisplayMode::RepoTagList,
             "|Ξ|☰| Lista separada",
         )
         .on_hover_text(
             "Mostrar una lista de imágenes separada entre repositorios y versiones (tag)",
         );
         ui.selectable_value(
-            display_mode,
-            DisplayMode::ImageList,
+            list_display_mode,
+            ListDisplayMode::ImageList,
             "|☰| Lista de imágenes",
         )
         .on_hover_text("Mostrar todas las imágenes en lista");
 
-        if *display_mode == DisplayMode::ImageList {
+        if *list_display_mode == ListDisplayMode::ImageList {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
 		if ui
                     .button("⟲")
@@ -329,7 +376,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
 		    last_btn.clone().highlight();
 		}
 		if last_btn.clicked() {
-		    *remote_image_list_mode = match *remote_image_list_mode {
+		    *remote_image_list_mode = match remote_image_list_mode {
 			RemoteImageListMode::All => RemoteImageListMode::LastRepoImage,
 			RemoteImageListMode::LastRepoImage => RemoteImageListMode::All,
     		    };
@@ -343,8 +390,8 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
     });
     ui.add_space(6.0);
 
-    match display_mode {
-        DisplayMode::RepoTagList => {
+    match list_display_mode {
+        ListDisplayMode::RepoTagList => {
             // Repository panel
             egui::Panel::left("left_panel")
                 .resizable(true)
@@ -367,27 +414,115 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                                             *remote_repository_list_status =
                                                 ListStatus::NeedsReload;
                                         }
+                                        let btn = ui
+                                            .button(
+                                                if *repositories_display_mode
+                                                    == RepositoriesDisplayMode::Nested
+                                                {
+                                                    "☰"
+                                                } else {
+                                                    "☰"
+                                                },
+                                            )
+                                            .on_hover_text(
+                                                if *repositories_display_mode
+                                                    == RepositoriesDisplayMode::Nested
+                                                {
+                                                    "Mostrar lista completa"
+                                                } else {
+                                                    "Mostrar lista anidada"
+                                                },
+                                            );
+                                        if *repositories_display_mode
+                                            == RepositoriesDisplayMode::Unnested
+                                        {
+                                            btn.clone().highlight();
+                                        }
+                                        if btn.clicked() {
+                                            //*remote_image_list_status = ListStatus::NeedsReload;
+                                            *repositories_display_mode =
+                                                match repositories_display_mode {
+                                                    RepositoriesDisplayMode::Nested => {
+                                                        RepositoriesDisplayMode::Unnested
+                                                    }
+                                                    RepositoriesDisplayMode::Unnested => {
+                                                        RepositoriesDisplayMode::Nested
+                                                    }
+                                                }
+                                        }
                                     },
                                 );
                             });
                             ui.add_space(3.0);
                         });
+
+                        fn repo_ui_selection_item(
+                            ui: &mut egui::Ui,
+                            selected_repository: &mut Option<String>,
+                            remote_tag_list_status: &mut ListStatus,
+                            display_name: String,
+                            repo: String,
+                        ) {
+                            if ui
+                                .selectable_value(
+                                    selected_repository,
+                                    Some(repo.clone()), // Full repo
+                                    display_name,       // Can be a partial name
+                                )
+                                .on_hover_text(format!("Seleccionar el repositorio {repo}"))
+                                .clicked()
+                            {
+                                println!("New selected repo: {selected_repository:?}");
+                                *remote_tag_list_status = ListStatus::NeedsReload;
+                            }
+                        }
+
+                        // TODO search bar
                         egui::ScrollArea::vertical().show(ui, |ui| {
                             if *remote_repository_list_status == ListStatus::Loading {
                                 ui.set_cursor_icon(egui::CursorIcon::Wait);
                             }
-                            for repo in remote_repository_list.clone() {
-                                if ui
-                                    .selectable_value(
-                                        selected_repository,
-                                        Some(repo.to_string()),
-                                        repo.to_string(),
-                                    )
-                                    .on_hover_text(format!("Seleccionar el repositorio {repo}"))
-                                    .clicked()
-                                {
-                                    println!("New selected repo: {selected_repository:?}");
-                                    *remote_tag_list_status = ListStatus::NeedsReload;
+                            match repositories_display_mode {
+                                RepositoriesDisplayMode::Nested => {
+                                    for repo_item in remote_repository_nested_list {
+                                        match repo_item {
+                                            NestedRepoListItem::Repo(repo) => {
+                                                repo_ui_selection_item(
+                                                    ui,
+                                                    selected_repository,
+                                                    remote_tag_list_status,
+                                                    repo.to_string(),
+                                                    repo.to_string(),
+                                                );
+                                            }
+                                            NestedRepoListItem::Directory(dir_item) => {
+                                                egui::CollapsingHeader::new(dir_item.0.clone()).id_salt(dir_item.clone())
+                                                    .show(ui, |ui| {
+                                                        for repo in dir_item.1.clone() {
+							    let full_repo_name = format!("{}/{repo}", dir_item.0);
+                                                            repo_ui_selection_item(
+                                                                ui,
+                                                                selected_repository,
+                                                                remote_tag_list_status,
+                                                                repo.to_string(),
+                                                                full_repo_name,
+                                                            );
+                                                        }
+                                                    });
+                                            }
+                                        }
+                                    }
+                                }
+                                RepositoriesDisplayMode::Unnested => {
+                                    for repo in remote_repository_list.clone() {
+                                        repo_ui_selection_item(
+                                            ui,
+                                            selected_repository,
+                                            remote_tag_list_status,
+                                            repo.to_string(),
+                                            repo.to_string(),
+                                        );
+                                    }
                                 }
                             }
                             ui.allocate_space(ui.available_size());
@@ -426,7 +561,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                 });
             });
         }
-        DisplayMode::ImageList => {
+        ListDisplayMode::ImageList => {
             ui.group(|ui| {
                 table_ui(
                     ui,
