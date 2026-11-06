@@ -344,7 +344,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                 {
                     *remote_image_list_status = ListStatus::NeedsReload;
                 }
-		let last_btn = ui.button("⏭").on_hover_text("Mostrar sólo la última versión de cada repositorio.\nSe entiende por última versión, la última que se haya subido al registro, no necesariamente la de mayor número de versión.");
+		let last_btn = ui.button("⏭").on_hover_text("Mostrar sólo la última versión de cada repositorio.\nSe entiende por última versión, la última que se haya creado, no necesariamente la de mayor número de versión. Usar con precaución.");
 		if *remote_image_list_mode == RemoteImageListMode::LastRepoImage {
 		    last_btn.clone().highlight();
 		}
@@ -388,6 +388,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                                         {
                                             *remote_repository_list_status =
                                                 ListStatus::NeedsReload;
+                                            *remote_tag_list_status = ListStatus::NeedsReload;
                                         }
                                         let btn = ui
                                             .button(
@@ -482,6 +483,13 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                             {
                                 image_table_options.repo_search_field = None;
                             }
+                            filter.context_menu(|ui| {
+                                crate::ui::widgets::textedit_context_menu(
+                                    ui,
+                                    image_table_options.repo_search_field.as_mut().unwrap(),
+                                );
+                                filter.request_focus();
+                            });
                         }
                         // Repo list
                         egui::ScrollArea::vertical().show(ui, |ui| {

@@ -1,4 +1,5 @@
 pub mod main_list;
+pub mod widgets;
 pub mod window;
 
 use crate::configuration as config;
@@ -8,19 +9,14 @@ use arc_swap::ArcSwap;
 use config::AppConfig;
 use container::Image;
 use eframe::egui;
-use main_list::TableSortType;
-use window::WindowOptions;
-
 use egui::{Align, Layout, UiBuilder};
 use egui_notify::Toasts;
 use futures::executor::block_on;
 use futures::lock::Mutex as AsyncMutex;
 use main_list::ImageTableOptions;
+use main_list::TableSortType;
 use std::sync::{Arc, Mutex};
-use window::config_window;
-use window::image_info_window;
-use window::remote_list_window;
-use window::upload_window;
+use window::{WindowOptions, config_window, image_info_window, remote_list_window, upload_window};
 
 pub fn ui_start() -> eframe::Result {
     let icon = std::include_bytes!("../assets/icon.png");
@@ -444,6 +440,13 @@ impl eframe::App for MyApp {
                     if filter.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                         self.image_table_options.search_field = None;
                     }
+                    filter.context_menu(|ui| {
+                        widgets::textedit_context_menu(
+                            ui,
+                            self.image_table_options.search_field.as_mut().unwrap(),
+                        );
+                        filter.request_focus();
+                    });
                 }
             });
             ui.add_space(6.0);
