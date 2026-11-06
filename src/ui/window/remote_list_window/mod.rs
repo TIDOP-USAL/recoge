@@ -161,6 +161,7 @@ impl Default for WindowData {
             remote_image_list_mode: RemoteImageListMode::All,
             toasts_arc: Arc::new(AsyncMutex::new(Toasts::default())),
             image_table_options: ImageTableOptions {
+                repo_search_field: None,
                 sort_type: TableSortType::Date,
                 ui_date_rev: true,
                 ui_name_rev: false,
@@ -190,6 +191,7 @@ impl PullProgress {
 }
 #[derive(Debug, Clone)]
 pub struct ImageTableOptions {
+    pub repo_search_field: Option<String>, // None: disabled
     sort_type: TableSortType,
     ui_date_rev: bool, // 0: ASC
     ui_name_rev: bool, // 0: A-Z
@@ -361,6 +363,8 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
     });
     ui.add_space(6.0);
 
+    let mut search_focus = false;
+
     match list_display_mode {
         ListDisplayMode::RepoTagList => {
             // Repository panel
@@ -421,6 +425,22 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                                                     }
                                                 }
                                         }
+                                        let search_btn =
+                                            ui.button("🔍").on_hover_text("Buscar por nombre");
+                                        if image_table_options.repo_search_field.is_some() {
+                                            *repositories_display_mode =
+                                                RepositoriesDisplayMode::Unnested;
+                                            search_btn.clone().highlight();
+                                        }
+                                        if search_btn.clicked() {
+                                            if image_table_options.repo_search_field.is_none() {
+                                                image_table_options.repo_search_field =
+                                                    Some(String::new());
+                                                search_focus = true;
+                                            } else {
+                                                image_table_options.repo_search_field = None;
+                                            }
+                                        };
                                     },
                                 );
                             });
@@ -448,7 +468,22 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                             }
                         }
 
-                        // TODO search bar
+                        // Search bar
+                        if image_table_options.repo_search_field.is_some() {
+                            let filter = ui
+                                .text_edit_singleline(
+                                    image_table_options.repo_search_field.as_mut().unwrap(),
+                                )
+                                .on_hover_text("Nombre de repositorio para filtrar");
+                            if search_focus {
+                                filter.request_focus();
+                            }
+                            if filter.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape))
+                            {
+                                image_table_options.repo_search_field = None;
+                            }
+                        }
+                        // Repo list
                         egui::ScrollArea::vertical().show(ui, |ui| {
                             if *remote_repository_list_status == ListStatus::Loading {
                                 ui.set_cursor_icon(egui::CursorIcon::Wait);
@@ -488,6 +523,13 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                                 }
                                 RepositoriesDisplayMode::Unnested => {
                                     for repo in remote_repository_list.clone() {
+                                        if let Some(search_filter) =
+                                            image_table_options.repo_search_field.clone()
+                                        {
+                                            if !repo.contains(&search_filter) {
+                                                continue;
+                                            }
+                                        }
                                         repo_ui_selection_item(
                                             ui,
                                             selected_repository,
