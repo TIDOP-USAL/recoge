@@ -3,6 +3,7 @@ use super::WindowOptions;
 use crate::configuration::AppConfig;
 use crate::tasks::Task;
 use crate::ui::GlobalData;
+use crate::ui::widgets;
 use crate::zot;
 use eframe::egui;
 use egui::{Align, Layout, UiBuilder};
@@ -96,7 +97,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             ui.label("Dirección del Registro:");
             let registry_ui = ui.text_edit_singleline(&mut app_config_copy.remote_url);
             registry_ui.context_menu(|ui| {
-                textedit_context_menu(ui, &mut app_config_copy.remote_url);
+                widgets::textedit_context_menu(ui, &mut app_config_copy.remote_url);
                 registry_ui.request_focus();
             });
             if registry_ui.changed() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -111,7 +112,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             ui.label("Usuario:");
             let user_ui = ui.text_edit_singleline(&mut app_config_copy.user);
             user_ui.context_menu(|ui| {
-                textedit_context_menu(ui, &mut app_config_copy.user);
+                widgets::textedit_context_menu(ui, &mut app_config_copy.user);
                 user_ui.request_focus();
             });
             if user_ui.changed() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -142,7 +143,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
                     .password(!show_plaintext);
                 let password_ui = ui.add_sized(ui.available_size(), password_edit);
                 password_ui.context_menu(|ui| {
-                    textedit_context_menu(ui, &mut app_config_copy.password);
+                    widgets::textedit_context_menu(ui, &mut app_config_copy.password);
                     password_ui.request_focus();
                 });
                 if password_ui.changed() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -244,21 +245,6 @@ fn config_save(
     } else {
         println!("Error while saving config file");
         toasts.error("Error al guardar la configuración");
-    }
-}
-
-fn textedit_context_menu(ui: &mut egui::Ui, content: &mut String) {
-    if ui.button("Copiar todo").clicked() {
-        ui.ctx().copy_text(content.clone());
-        ui.close();
-    }
-    if ui.button("Pegar y reemplazar").clicked() {
-        content.clear();
-        ui.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
-        ui.close();
-    }
-    if ui.button("Borrar").clicked() {
-        content.clear();
     }
 }
 
