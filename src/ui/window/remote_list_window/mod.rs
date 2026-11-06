@@ -67,37 +67,8 @@ impl WindowData {
 
     pub async fn load_repo_list(&mut self) -> Result<Vec<String>, ()> {
         let toasts_arc = Arc::clone(&self.toasts_arc);
-        let mut repos: Vec<String> = tag_list::get_repo_list(&self.app_config, toasts_arc).await?;
-        // Unnested list
-        self.remote_repository_list = repos.clone();
-
-        // Nested list
-        let mut filled_directories = Vec::new();
-        for repo in &repos {
-            // Follow A-Z order
-            let parts: Vec<&str> = repo.split('/').collect();
-            if repo.contains('/')
-                && let Some(dir) = parts.first()
-            {
-                if filled_directories.contains(dir) {
-                    continue;
-                }
-                let matching_full_repos: Vec<String> = repos
-                    .iter()
-                    .filter(|x| x.starts_with(&format!("{dir}/")))
-                    .map(|x| x[(dir.len() + 1..)].to_string())
-                    .collect();
-                let dir_item =
-                    NestedRepoListItem::Directory((dir.to_string(), matching_full_repos));
-                self.remote_repository_nested_list.push(dir_item);
-                filled_directories.push(dir);
-            } else {
-                let repo_item = NestedRepoListItem::Repo(repo.to_string());
-                self.remote_repository_nested_list.push(repo_item);
-            }
-        }
-        //println!("nested: {:#?}", self.remote_repository_nested_list);
-	// TODO remove this code from here, only set the NeedsReload flag, to trigger tag_list::load_repo_list.
+        let mut repos = tag_list::get_repo_list(&self.app_config, toasts_arc).await?;
+        tag_list::update_new_repo_list(repos.clone(), self);
         Ok(repos)
     }
 }
@@ -276,7 +247,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
             let data_arc_3 = Arc::clone(&data_arc);
             let ctx = ui.ctx().clone();
             tasks.fire_async(async move {
-                match tag_list::load_repo_list(data_arc_2).await {
+                match tag_list::reload_repo_list(data_arc_2).await {
                     Ok(repos) => {
                         println!("OK repo load");
                         let mut data = data_arc_3.lock().await;
@@ -496,10 +467,12 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                                                 );
                                             }
                                             NestedRepoListItem::Directory(dir_item) => {
-                                                egui::CollapsingHeader::new(dir_item.0.clone()).id_salt(dir_item.clone())
+                                                egui::CollapsingHeader::new(dir_item.0.clone())
+                                                    .id_salt(dir_item.clone())
                                                     .show(ui, |ui| {
                                                         for repo in dir_item.1.clone() {
-							    let full_repo_name = format!("{}/{repo}", dir_item.0);
+                                                            let full_repo_name =
+                                                                format!("{}/{repo}", dir_item.0);
                                                             repo_ui_selection_item(
                                                                 ui,
                                                                 selected_repository,

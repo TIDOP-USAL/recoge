@@ -14,19 +14,24 @@ use egui_extras::{Column, TableBuilder};
 use futures::lock::Mutex as AsyncMutex;
 use std::sync::Arc;
 
-pub async fn load_repo_list(data: Arc<AsyncMutex<WindowData>>) -> Result<Vec<String>, ()> {
+pub async fn reload_repo_list(data: Arc<AsyncMutex<WindowData>>) -> Result<Vec<String>, ()> {
     let data_locked = data.lock().await;
     let toasts = Arc::clone(&data_locked.toasts_arc);
     let config = data_locked.app_config.clone();
     drop(data_locked);
-    let remote_repository_list = get_repo_list(&config, toasts).await?;
+    let repos = get_repo_list(&config, toasts).await?;
     let mut data_locked = data.lock().await;
+    update_new_repo_list(repos.clone(), &mut data_locked);
+    drop(data_locked);
+    Ok(repos)
+}
+
+pub fn update_new_repo_list(remote_repository_list: Vec<String>, output: &mut WindowData) {
     // Unnested list
-    data_locked.remote_repository_list = remote_repository_list.clone();
-    
+    output.remote_repository_list = remote_repository_list.clone();
+
     // Nested list
-    println!("UPDATING NESTED LIST");
-    data_locked.remote_repository_nested_list.clear();
+    output.remote_repository_nested_list.clear();
     let mut filled_directories = Vec::new();
     for repo in &remote_repository_list {
         // Follow A-Z order
@@ -44,15 +49,13 @@ pub async fn load_repo_list(data: Arc<AsyncMutex<WindowData>>) -> Result<Vec<Str
                 .collect();
             let dir_item =
                 super::NestedRepoListItem::Directory((dir.to_string(), matching_full_repos));
-            data_locked.remote_repository_nested_list.push(dir_item);
+            output.remote_repository_nested_list.push(dir_item);
             filled_directories.push(dir);
         } else {
             let repo_item = super::NestedRepoListItem::Repo(repo.to_string());
-            data_locked.remote_repository_nested_list.push(repo_item);
+            output.remote_repository_nested_list.push(repo_item);
         }
     }
-    
-    Ok(remote_repository_list)
 }
 
 pub async fn get_repo_list(
