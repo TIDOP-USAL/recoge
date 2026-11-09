@@ -164,7 +164,7 @@ impl ModalData {
                             {
                                 Ok(_) => {
                                     println!("Pull OK");
-                                    // TODO trigger main list refresh?
+                                    // Main list refresh is triggered in mod.rs
                                     PullProgress::Ok
                                 }
                                 Err(x) => {

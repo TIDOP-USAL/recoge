@@ -2,7 +2,9 @@ use super::{
     ImageTableOptions, TableSortType, WindowData, delete_modal::ModalData as DeleteModalData,
     pull_modal::ModalData as PullModalData,
 };
-use super::{WindowOptions, WindowSize};
+use super::{
+    ListStatus, NestedRepoListItem, RepositoriesDisplayMode, WindowOptions, WindowSize, tag_list,
+};
 use crate::configuration::AppConfig;
 use crate::container;
 use crate::tasks::Task;
@@ -123,6 +125,228 @@ pub async fn load_tag_list(
     let mut data_locked = data.lock().await;
     data_locked.remote_tag_list = remote_image_list;
     Ok(())
+}
+
+// UI functions
+
+pub fn ui(
+    ui: &mut egui::Ui,
+    repositories_display_mode: &mut RepositoriesDisplayMode,
+    app_config: &AppConfig,
+    remote_repository_list_status: &mut ListStatus,
+    remote_repository_list: &mut Vec<String>,
+    remote_repository_nested_list: &mut Vec<NestedRepoListItem>,
+    selected_repository: &mut Option<String>,
+    remote_tag_list_status: &mut ListStatus,
+    remote_tag_list: &mut Vec<container::Image>,
+    image_table_options: &mut ImageTableOptions,
+    pull_modal_data: &mut Option<PullModalData>,
+    delete_modal_data: &mut Option<DeleteModalData>,
+) {
+    let mut search_focus = false;
+    // Repository panel
+    egui::Panel::left("left_panel")
+        .resizable(true)
+        .min_size(150.0)
+        .default_size(200.0)
+        .max_size(400.0)
+        .show(ui, |ui| {
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.heading("Repositorios");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
+                            if ui
+                                .button("⟲")
+                                .on_hover_text("Recargar lista de repositorios remotos")
+                                .clicked()
+                            {
+                                *remote_repository_list_status = ListStatus::NeedsReload;
+                                *remote_tag_list_status = ListStatus::NeedsReload;
+                            }
+                            let btn = ui
+                                .button(
+                                    if *repositories_display_mode == RepositoriesDisplayMode::Nested
+                                    {
+                                        "☰"
+                                    } else {
+                                        "☰"
+                                    },
+                                )
+                                .on_hover_text(
+                                    if *repositories_display_mode == RepositoriesDisplayMode::Nested
+                                    {
+                                        "Mostrar lista completa"
+                                    } else {
+                                        "Mostrar lista anidada"
+                                    },
+                                );
+                            if *repositories_display_mode == RepositoriesDisplayMode::Unnested {
+                                btn.clone().highlight();
+                            }
+                            if btn.clicked() {
+                                //*remote_image_list_status = ListStatus::NeedsReload;
+                                *repositories_display_mode = match repositories_display_mode {
+                                    RepositoriesDisplayMode::Nested => {
+                                        RepositoriesDisplayMode::Unnested
+                                    }
+                                    RepositoriesDisplayMode::Unnested => {
+                                        RepositoriesDisplayMode::Nested
+                                    }
+                                }
+                            }
+                            let search_btn = ui.button("🔍").on_hover_text("Buscar por nombre");
+                            if image_table_options.repo_search_field.is_some() {
+                                *repositories_display_mode = RepositoriesDisplayMode::Unnested;
+                                search_btn.clone().highlight();
+                            }
+                            if search_btn.clicked() {
+                                if image_table_options.repo_search_field.is_none() {
+                                    image_table_options.repo_search_field = Some(String::new());
+                                    search_focus = true;
+                                } else {
+                                    image_table_options.repo_search_field = None;
+                                }
+                            };
+                        });
+                    });
+                    ui.add_space(3.0);
+                });
+
+                fn repo_ui_selection_item(
+                    ui: &mut egui::Ui,
+                    selected_repository: &mut Option<String>,
+                    remote_tag_list_status: &mut ListStatus,
+                    display_name: String,
+                    repo: String,
+                ) {
+                    if ui
+                        .selectable_value(
+                            selected_repository,
+                            Some(repo.clone()), // Full repo
+                            display_name,       // Can be a partial name
+                        )
+                        .on_hover_text(format!("Seleccionar el repositorio {repo}"))
+                        .clicked()
+                    {
+                        println!("New selected repo: {selected_repository:?}");
+                        *remote_tag_list_status = ListStatus::NeedsReload;
+                    }
+                }
+
+                // Search bar
+                if image_table_options.repo_search_field.is_some() {
+                    let filter = ui
+                        .text_edit_singleline(
+                            image_table_options.repo_search_field.as_mut().unwrap(),
+                        )
+                        .on_hover_text("Nombre de repositorio para filtrar");
+                    if search_focus {
+                        filter.request_focus();
+                    }
+                    if filter.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        image_table_options.repo_search_field = None;
+                    }
+                    filter.context_menu(|ui| {
+                        crate::ui::widgets::textedit_context_menu(
+                            ui,
+                            image_table_options.repo_search_field.as_mut().unwrap(),
+                        );
+                        filter.request_focus();
+                    });
+                }
+                // Repo list
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    if *remote_repository_list_status == ListStatus::Loading {
+                        ui.set_cursor_icon(egui::CursorIcon::Wait);
+                    }
+                    match repositories_display_mode {
+                        RepositoriesDisplayMode::Nested => {
+                            for repo_item in remote_repository_nested_list {
+                                match repo_item {
+                                    NestedRepoListItem::Repo(repo) => {
+                                        repo_ui_selection_item(
+                                            ui,
+                                            selected_repository,
+                                            remote_tag_list_status,
+                                            repo.to_string(),
+                                            repo.to_string(),
+                                        );
+                                    }
+                                    NestedRepoListItem::Directory(dir_item) => {
+                                        egui::CollapsingHeader::new(dir_item.0.clone())
+                                            .id_salt(dir_item.clone())
+                                            .show(ui, |ui| {
+                                                for repo in dir_item.1.clone() {
+                                                    let full_repo_name =
+                                                        format!("{}/{repo}", dir_item.0);
+                                                    repo_ui_selection_item(
+                                                        ui,
+                                                        selected_repository,
+                                                        remote_tag_list_status,
+                                                        repo.to_string(),
+                                                        full_repo_name,
+                                                    );
+                                                }
+                                            });
+                                    }
+                                }
+                            }
+                        }
+                        RepositoriesDisplayMode::Unnested => {
+                            for repo in remote_repository_list.clone() {
+                                if let Some(search_filter) =
+                                    image_table_options.repo_search_field.clone()
+                                {
+                                    if !repo.contains(&search_filter) {
+                                        continue;
+                                    }
+                                }
+                                repo_ui_selection_item(
+                                    ui,
+                                    selected_repository,
+                                    remote_tag_list_status,
+                                    repo.to_string(),
+                                    repo.to_string(),
+                                );
+                            }
+                        }
+                    }
+                    ui.allocate_space(ui.available_size());
+                });
+            });
+        });
+
+    egui::CentralPanel::default().show(ui, |ui| {
+        if *remote_tag_list_status == ListStatus::Loading {
+            ui.set_cursor_icon(egui::CursorIcon::Wait);
+        }
+
+        if let Some(repo) = selected_repository {
+            ui.horizontal(|ui| {
+                //ui.label("Repositorio:");
+                ui.label("🗀");
+                ui.code(repo).on_hover_text("El repositorio seleccionado");
+                if *remote_tag_list_status == ListStatus::Loading {
+                    ui.spinner();
+                }
+            });
+        }
+        // Tag table
+        ui.group(|ui| {
+            if *remote_tag_list_status == ListStatus::Loading {
+                ui.disable();
+            }
+            tag_list::table_ui(
+                ui,
+                image_table_options,
+                remote_tag_list,
+                &app_config,
+                pull_modal_data,
+                delete_modal_data,
+            );
+        });
+    });
 }
 
 pub fn table_ui(
