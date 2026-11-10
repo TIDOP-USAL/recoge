@@ -6,6 +6,7 @@ pub mod container;
 pub mod error;
 pub mod tasks;
 pub mod ui;
+pub mod utils;
 pub mod zot;
 
 use env_logger::{Builder, Env};

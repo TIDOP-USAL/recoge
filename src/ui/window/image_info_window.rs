@@ -4,6 +4,7 @@ use crate::container;
 use crate::container::ImageCollection;
 use crate::error::{Error, Result};
 use crate::tasks::Task;
+use crate::utils;
 use crate::zot;
 use crate::zot::ImageDisplayMetadata;
 use bollard::config::ImageDeleteResponseItem;
@@ -79,6 +80,7 @@ pub struct ImageData {
     pub remote_images_metadata: Vec<ImageDisplayMetadata>,
     pub image_collection: Option<ImageCollection>,
     pub image_inspect: Option<bollard::models::ImageInspect>,
+    pub local_date: chrono::DateTime<chrono::Utc>,
     pub delete_modal_data: Option<ModalData>, // None: closed
 }
 
@@ -327,6 +329,7 @@ pub async fn load_image_info(
         remote_images_metadata,
         image_collection,
         image_inspect,
+        local_date,
         delete_modal_data: None,
     });
     //self.open(data);
@@ -395,6 +398,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
         remote_images_metadata,
         image_collection,
         image_inspect,
+        local_date,
         delete_modal_data: _,
     } = image_data;
 
@@ -512,6 +516,14 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                     humansize::DECIMAL,
                 ));
             };
+            ui.end_row();
+
+            ui.label("Fecha de creación:");
+            ui.label(format!(
+                "{} (Hace {})",
+                utils::get_date_local_seconds(&local_date),
+                utils::get_relative_date_long(&local_date),
+            ));
             ui.end_row();
 
             ui.label("Arquitectura:");
