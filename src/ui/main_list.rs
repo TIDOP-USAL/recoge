@@ -23,16 +23,16 @@ pub enum TableSortType {
     Name,
 }
 
-pub fn image_list_table(mut ui: &mut egui::Ui, app: &mut super::MyApp) {
+pub fn image_list_table(ui: &mut egui::Ui, app: &mut super::MyApp) {
     let global_data_arc = Arc::clone(&app.global_data);
     let global_data = block_on(global_data_arc.lock().into_future());
     let config = global_data.config.clone();
     drop(global_data);
     let available_height = ui.available_height();
-    let date_rev = app.image_table_options.ui_date_rev.clone();
-    let name_rev = app.image_table_options.ui_name_rev.clone();
+    let date_rev = app.image_table_options.ui_date_rev;
+    let name_rev = app.image_table_options.ui_name_rev;
     let sort_type = app.image_table_options.sort_type.clone();
-    let _table = TableBuilder::new(&mut ui)
+    let _table = TableBuilder::new(ui)
         .striped(true)
         .resizable(true)
         .auto_shrink(false)
@@ -97,12 +97,12 @@ pub fn image_list_table(mut ui: &mut egui::Ui, app: &mut super::MyApp) {
         })
         .body(|mut body| {
             let image_list: Vec<Image> = app.image_list.lock().unwrap().to_vec();
-            for image in image_list.iter() {
+            for image in &image_list {
                 // TODO global filtered list
-                if let Some(search_filter) = app.image_table_options.search_field.clone() {
-                    if !image.get_image_name().contains(&search_filter) {
-                        continue;
-                    }
+                if let Some(search_filter) = app.image_table_options.search_field.clone()
+                    && !image.get_image_name().contains(&search_filter)
+                {
+                    continue;
                 }
                 image_table_row(app, &config, image, &mut body);
             }
@@ -145,7 +145,7 @@ fn image_table_row(
             if !image_name.contains(':') {
                 image_name.push_str(" (Sin nombre)");
             }
-            let label = egui::Label::new(image_name.to_string());
+            let label = egui::Label::new(image_name.clone());
             let rect = ui.add(label).on_hover_text(image_name.clone()).rect;
             if let Some(hid) = &app.image_list_hovered_id
                 && *hid == image.id

@@ -33,7 +33,7 @@ fn main() {
             "rustls_platform_verifier",
         ];
         for m in mute_list {
-            log_builder.filter(Some(&m), log::LevelFilter::Warn);
+            log_builder.filter(Some(m), log::LevelFilter::Warn);
         }
     }
     log_builder.filter(Some("tracing"), log::LevelFilter::Warn);

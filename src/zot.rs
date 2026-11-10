@@ -9,6 +9,7 @@ use reqwest::Url;
 use reqwest::header::ACCEPT;
 use serde::{Deserialize, Serialize};
 use serde_aux::prelude::*;
+use std::fmt::Write;
 
 pub struct Client {
     api_base_url: String,
@@ -24,6 +25,7 @@ pub struct ImageDisplayMetadata {
 }
 
 impl Client {
+    #[must_use]
     pub fn get_registry_name(&self) -> String {
         self.api_base_url
             .strip_prefix("https://")
@@ -32,7 +34,8 @@ impl Client {
     }
 
     // Don't call on an empty image
-    pub fn fill_image_metadata(&self, image: container::Image) -> ImageDisplayMetadata {
+    #[must_use]
+    pub fn fill_image_metadata(&self, image: &container::Image) -> ImageDisplayMetadata {
         // No API calls
         let registry_name = self.get_registry_name();
         let repo_info = image.repository_info.clone().unwrap();
@@ -46,6 +49,7 @@ impl Client {
         }
     }
 
+    #[must_use]
     pub fn get_credentials(&self) -> (String, String) {
         (self.username.clone(), self.password.clone())
     }
@@ -125,17 +129,16 @@ impl Client {
     }
 
     pub async fn get_repository_list(&mut self) -> Result<Vec<String>> {
-        let query = format!(
-            r#"query=
-{{
-  GlobalSearch(query:"", requestedPage: {{limit:0 offset:0 sortBy: ALPHABETIC_ASC}} ) {{
-    Repos {{
+        let query = r#"query=
+{
+  GlobalSearch(query:"", requestedPage: {limit:0 offset:0 sortBy: ALPHABETIC_ASC} ) {
+    Repos {
       Name
-    }}
-  }}
-}}
+    }
+  }
+}
 "#
-        );
+        .to_string();
         let response = self.graphql_client(query).await?;
         let body: GlobalSearchReposResponse = match response.json().await {
             Ok(x) => x,
@@ -473,10 +476,10 @@ pub async fn get_remote_info(image_name: String, client: &mut Client) -> Result<
         && let Some(first) = parts.next()
     {
         // Is domain (crude)
-        if first.contains(".") || first.contains("localhost") {
+        if first.contains('.') || first.contains("localhost") {
             let mut remainder = String::new();
             for part in parts {
-                remainder += &format!("{part}/");
+                let _ = write!(remainder, "{part}/");
             }
             remainder.pop(); // remove trailing '/'
             image_name = remainder;

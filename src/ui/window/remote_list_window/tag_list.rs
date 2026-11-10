@@ -24,19 +24,19 @@ pub async fn reload_repo_list(data: Arc<AsyncMutex<WindowData>>) -> Result<Vec<S
     drop(data_locked);
     let repos = get_repo_list(&config, toasts).await?;
     let mut data_locked = data.lock().await;
-    update_new_repo_list(repos.clone(), &mut data_locked);
+    update_new_repo_list(&repos, &mut data_locked);
     drop(data_locked);
     Ok(repos)
 }
 
-pub fn update_new_repo_list(remote_repository_list: Vec<String>, output: &mut WindowData) {
+pub fn update_new_repo_list(remote_repository_list: &[String], output: &mut WindowData) {
     // Unnested list
-    output.remote_repository_list = remote_repository_list.clone();
+    output.remote_repository_list = remote_repository_list.to_vec();
 
     // Nested list
     output.remote_repository_nested_list.clear();
     let mut filled_directories = Vec::new();
-    for repo in &remote_repository_list {
+    for repo in remote_repository_list {
         // Follow A-Z order
         let parts: Vec<&str> = repo.split('/').collect();
         if repo.contains('/')
@@ -55,7 +55,7 @@ pub fn update_new_repo_list(remote_repository_list: Vec<String>, output: &mut Wi
             output.remote_repository_nested_list.push(dir_item);
             filled_directories.push(dir);
         } else {
-            let repo_item = super::NestedRepoListItem::Repo(repo.to_string());
+            let repo_item = super::NestedRepoListItem::Repo(repo.clone());
             output.remote_repository_nested_list.push(repo_item);
         }
     }
@@ -65,7 +65,7 @@ pub async fn get_repo_list(
     config: &AppConfig,
     toasts: Arc<AsyncMutex<egui_notify::Toasts>>,
 ) -> Result<Vec<String>, ()> {
-    let Ok(mut client) = zot::Client::new(&config) else {
+    let Ok(mut client) = zot::Client::new(config) else {
         let mut toasts = toasts.lock().await;
         toasts
             .error("Error de conexión. Comprueba las credenciales del Registro.")
@@ -130,16 +130,37 @@ pub async fn load_tag_list(
 
 // UI functions
 
+fn repo_ui_selection_item(
+    ui: &mut egui::Ui,
+    selected_repository: &mut Option<String>,
+    remote_tag_list_status: &mut ListStatus,
+    display_name: String,
+    repo: String,
+) {
+    if ui
+        .selectable_value(
+            selected_repository,
+            Some(repo.clone()), // Full repo
+            display_name,       // Can be a partial name
+        )
+        .on_hover_text(format!("Seleccionar el repositorio {repo}"))
+        .clicked()
+    {
+        debug!("New selected repo: {selected_repository:?}");
+        *remote_tag_list_status = ListStatus::NeedsReload;
+    }
+}
+
 pub fn ui(
     ui: &mut egui::Ui,
     repositories_display_mode: &mut RepositoriesDisplayMode,
     app_config: &AppConfig,
     remote_repository_list_status: &mut ListStatus,
-    remote_repository_list: &mut Vec<String>,
+    remote_repository_list: &mut [String],
     remote_repository_nested_list: &mut Vec<NestedRepoListItem>,
     selected_repository: &mut Option<String>,
     remote_tag_list_status: &mut ListStatus,
-    remote_tag_list: &mut Vec<container::Image>,
+    remote_tag_list: &mut [container::Image],
     image_table_options: &mut ImageTableOptions,
     pull_modal_data: &mut Option<PullModalData>,
     delete_modal_data: &mut Option<DeleteModalData>,
@@ -165,23 +186,13 @@ pub fn ui(
                                 *remote_repository_list_status = ListStatus::NeedsReload;
                                 *remote_tag_list_status = ListStatus::NeedsReload;
                             }
-                            let btn = ui
-                                .button(
-                                    if *repositories_display_mode == RepositoriesDisplayMode::Nested
-                                    {
-                                        "☰"
-                                    } else {
-                                        "☰"
-                                    },
-                                )
-                                .on_hover_text(
-                                    if *repositories_display_mode == RepositoriesDisplayMode::Nested
-                                    {
-                                        "Mostrar lista completa"
-                                    } else {
-                                        "Mostrar lista anidada"
-                                    },
-                                );
+                            let btn = ui.button("☰").on_hover_text(
+                                if *repositories_display_mode == RepositoriesDisplayMode::Nested {
+                                    "Mostrar lista completa"
+                                } else {
+                                    "Mostrar lista anidada"
+                                },
+                            );
                             if *repositories_display_mode == RepositoriesDisplayMode::Unnested {
                                 btn.clone().highlight();
                             }
@@ -208,32 +219,11 @@ pub fn ui(
                                 } else {
                                     image_table_options.repo_search_field = None;
                                 }
-                            };
+                            }
                         });
                     });
                     ui.add_space(3.0);
                 });
-
-                fn repo_ui_selection_item(
-                    ui: &mut egui::Ui,
-                    selected_repository: &mut Option<String>,
-                    remote_tag_list_status: &mut ListStatus,
-                    display_name: String,
-                    repo: String,
-                ) {
-                    if ui
-                        .selectable_value(
-                            selected_repository,
-                            Some(repo.clone()), // Full repo
-                            display_name,       // Can be a partial name
-                        )
-                        .on_hover_text(format!("Seleccionar el repositorio {repo}"))
-                        .clicked()
-                    {
-                        debug!("New selected repo: {selected_repository:?}");
-                        *remote_tag_list_status = ListStatus::NeedsReload;
-                    }
-                }
 
                 // Search bar
                 if image_table_options.repo_search_field.is_some() {
@@ -270,8 +260,8 @@ pub fn ui(
                                             ui,
                                             selected_repository,
                                             remote_tag_list_status,
-                                            repo.to_string(),
-                                            repo.to_string(),
+                                            repo.clone(),
+                                            repo.clone(),
                                         );
                                     }
                                     NestedRepoListItem::Directory(dir_item) => {
@@ -285,7 +275,7 @@ pub fn ui(
                                                         ui,
                                                         selected_repository,
                                                         remote_tag_list_status,
-                                                        repo.to_string(),
+                                                        repo.clone(),
                                                         full_repo_name,
                                                     );
                                                 }
@@ -295,20 +285,19 @@ pub fn ui(
                             }
                         }
                         RepositoriesDisplayMode::Unnested => {
-                            for repo in remote_repository_list.clone() {
+                            for repo in remote_repository_list {
                                 if let Some(search_filter) =
                                     image_table_options.repo_search_field.clone()
+                                    && !repo.contains(&search_filter)
                                 {
-                                    if !repo.contains(&search_filter) {
-                                        continue;
-                                    }
+                                    continue;
                                 }
                                 repo_ui_selection_item(
                                     ui,
                                     selected_repository,
                                     remote_tag_list_status,
-                                    repo.to_string(),
-                                    repo.to_string(),
+                                    repo.clone(),
+                                    repo.clone(),
                                 );
                             }
                         }
@@ -342,7 +331,7 @@ pub fn ui(
                 ui,
                 image_table_options,
                 remote_tag_list,
-                &app_config,
+                app_config,
                 pull_modal_data,
                 delete_modal_data,
             );
@@ -353,16 +342,17 @@ pub fn ui(
 pub fn table_ui(
     ui: &mut egui::Ui,
     image_table_options: &mut ImageTableOptions,
-    images: &mut Vec<container::Image>,
+    images: &mut [container::Image],
     config: &AppConfig,
     pull_modal_data: &mut Option<PullModalData>,
     delete_modal_data: &mut Option<DeleteModalData>,
 ) -> egui::scroll_area::ScrollAreaOutput<()> {
     let available_height = ui.available_height();
-    let date_rev = image_table_options.ui_date_rev.clone();
-    let name_rev = image_table_options.ui_name_rev.clone();
+    let date_rev = image_table_options.ui_date_rev;
+    let name_rev = image_table_options.ui_name_rev;
     let sort_type = image_table_options.sort_type.clone();
-    let table = TableBuilder::new(ui)
+
+    TableBuilder::new(ui)
         .striped(true)
         .resizable(true)
         .auto_shrink(false)
@@ -393,7 +383,7 @@ pub fn table_ui(
                     if btn.clicked() {
                         image_table_options.ui_name_rev ^= true;
                         image_table_options.sort_type = TableSortType::Name;
-                        sort_table(image_table_options.clone(), images);
+                        sort_table(image_table_options, images);
                     }
                 });
             });
@@ -421,23 +411,16 @@ pub fn table_ui(
                     if btn.clicked() {
                         image_table_options.ui_date_rev ^= true;
                         image_table_options.sort_type = TableSortType::Date;
-                        sort_table(image_table_options.clone(), images);
+                        sort_table(image_table_options, images);
                     }
                 });
             });
         })
         .body(|mut body| {
             for image in images.iter() {
-                image_table_row(
-                    image,
-                    &mut body,
-                    &config,
-                    pull_modal_data,
-                    delete_modal_data,
-                );
+                image_table_row(image, &mut body, config, pull_modal_data, delete_modal_data);
             }
-        });
-    table
+        })
 }
 
 fn image_table_row(
@@ -474,7 +457,7 @@ fn image_table_row(
                     .clicked()
                 {
                     debug!("Delete modal for: {image_name}");
-                    *delete_modal_data = Some(DeleteModalData::new(image_name, config.clone()));
+                    *delete_modal_data = Some(DeleteModalData::new(&image_name, config.clone()));
                 }
                 /*if ui
                     .button("ℹ")
@@ -503,7 +486,7 @@ fn image_table_row(
     });
 }
 
-fn sort_table(options: ImageTableOptions, list: &mut Vec<container::Image>) {
+fn sort_table(options: &ImageTableOptions, list: &mut [container::Image]) {
     debug!("Sorting image table: {options:#?}");
     match options.sort_type {
         TableSortType::None => {}

@@ -32,14 +32,16 @@ pub struct ModalData {
 }
 
 impl ModalData {
+    #[must_use]
     pub fn image_was_deleted(&self) -> bool {
         *self.delete_progress.lock().unwrap() == DeleteProgress::Ok
     }
 
-    pub fn new(image: String, config: AppConfig) -> Self {
+    #[must_use]
+    pub fn new(image: &str, config: AppConfig) -> Self {
         Self {
-            image_name: image.clone(),
-            config: config.clone(),
+            image_name: image.to_string(),
+            config,
             delete_progress: Arc::new(Mutex::new(DeleteProgress::NotStarted)),
         }
     }

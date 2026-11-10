@@ -3,18 +3,19 @@
 //! These are backed by a tokio threadpool impl.
 //! https://gist.github.com/zkldi/d283779f4fe42567da65552c7cd9cdc6
 
+use crate::error::{Error, Result};
 use std::fmt::Debug;
 use std::num::Wrapping;
 use std::ops::ControlFlow;
 use std::sync::Arc;
-use std::time::Duration;
-
 use std::sync::Mutex;
+use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::TryRecvError;
 
 /// A task is a way of performing long running tasks without blocking the egui thread,
 /// in a way that is ergonomic for egui usage.
+#[derive(Default)]
 pub struct Task<T> {
     recv: Option<oneshot::Receiver<T>>,
     value: Option<T>,
@@ -71,8 +72,7 @@ impl<T> TaskState<T> {
     /// None until that fire finishes.
     pub fn get_no_stale(self) -> Option<T> {
         match self {
-            TaskState::NotFired => None,
-            TaskState::Loading(_) => None,
+            TaskState::NotFired | TaskState::Loading(_) => None,
             TaskState::Ok(t) => Some(t),
         }
     }
@@ -136,6 +136,7 @@ where
     }
 
     /// Create a new task.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             recv: None,
@@ -148,6 +149,7 @@ where
     ///
     /// If another fire is emitted in this time, the previous task is
     /// cancelled.
+    #[must_use]
     pub fn with_debounce(mut self, duration: Duration) -> Self {
         self.debounce = Some(Arc::new(Mutex::new(TaskDebounce {
             cur_idx: Wrapping(0),
@@ -158,7 +160,7 @@ where
     }
 
     /// Get the state of this task. Returns an error if the background task failed.
-    pub fn try_state(&mut self) -> Result<TaskState<&T>, ()> {
+    pub fn try_state(&mut self) -> Result<TaskState<&T>> {
         let v = match &mut self.recv {
             Some(recv) => match recv.try_recv() {
                 Ok(v) => {
@@ -169,12 +171,13 @@ where
                 }
                 Err(TryRecvError::Empty) => TaskState::Loading(self.value.as_ref()),
                 Err(TryRecvError::Closed) => {
-                    return Err(());
+                    return Err(Error::Program("TryRecvError closed".to_string()));
                 }
             },
             None => {
                 if self.value.is_some() {
                     // is_some -> unwrap as a borrowck hack
+                    #[allow(clippy::unnecessary_unwrap)]
                     TaskState::Ok(self.value.as_ref().unwrap())
                 } else {
                     TaskState::NotFired

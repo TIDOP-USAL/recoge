@@ -18,6 +18,7 @@ pub struct WindowState {
 }
 
 impl WindowState {
+    #[must_use]
     pub fn default() -> Self {
         Self {
             options: window_options(),
@@ -39,6 +40,7 @@ impl WindowState {
     }
 }
 
+#[must_use]
 pub fn window_options() -> WindowOptions {
     WindowOptions {
         id: Id::new("upload_window"),
@@ -66,6 +68,7 @@ pub struct ImageInfo {
 }
 
 impl ImageInfo {
+    #[must_use]
     pub fn get_new_name(&self) -> String {
         let new_tag = if self.new_tag.is_empty() {
             "latest"
@@ -77,6 +80,7 @@ impl ImageInfo {
             self.remote_repo_prefix, self.new_repository_name, new_tag
         )
     }
+    #[must_use]
     pub fn get_new_remote_repo_info(&self) -> container::RepositoryInfo {
         container::RepositoryInfo {
             repository: format!(
@@ -234,9 +238,9 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
                 "No crear nuevos nombres en local",
             )
             .on_hover_text(
-                r#"No dejar nuevos nombres en local asociados al registro tras la subida.
+                r"No dejar nuevos nombres en local asociados al registro tras la subida.
 Durante la subida de imágenes, se crearán alias locales con el nombre del registro.
-Este modo elimina estas imágenes creadas para no ensuciar la lista local de imágenes."#,
+Este modo elimina estas imágenes creadas para no ensuciar la lista local de imágenes.",
             );
             ui.end_row();
             ui.label("Se subirá como:");
@@ -299,7 +303,7 @@ Este modo elimina estas imágenes creadas para no ensuciar la lista local de im�
             {
                 push_info.table_rows.clear();
                 let mut tasks: Task<()> = Task::new();
-                let Ok(zot_client) = zot::Client::new(&config) else {
+                let Ok(zot_client) = zot::Client::new(config) else {
                     ui.close_kind(egui::UiKind::Window);
                     return error!("Invalid config");
                 };
@@ -335,7 +339,7 @@ Este modo elimina estas imágenes creadas para no ensuciar la lista local de im�
                         )
                         .await
                     {
-                        Ok(_) => {
+                        Ok(()) => {
                             info!("Push OK");
                             // TODO trigger main list refresh?
                             PushProgress::Ok
@@ -359,7 +363,8 @@ impl PushInfo {
     fn progress_table(&self, ui: &mut egui::Ui) -> egui::scroll_area::ScrollAreaOutput<()> {
         let available_height = 50.0;
         let row_height = 18.0;
-        let table = TableBuilder::new(ui)
+
+        TableBuilder::new(ui)
             .striped(true)
             .resizable(false)
             .auto_shrink(false)
@@ -383,18 +388,15 @@ impl PushInfo {
                         continue;
                     };
                     let mut progress_str = String::new();
-                    match &msg.progress_detail {
-                        Some(detail) => {
-                            if let Some(total) = detail.total
-                                && let Some(current) = detail.current
-                                && total != 0
-                            {
-                                let progress = (current as f64 / total as f64) * 100.0;
-                                progress_str = format!("({progress:.2}%)");
-                            }
-                        }
-                        None => {}
-                    };
+                    if let Some(detail) = &msg.progress_detail
+                        && let Some(total) = detail.total
+                        && let Some(current) = detail.current
+                        && total != 0
+                    {
+                        #[allow(clippy::cast_precision_loss)]
+                        let progress = (current as f64 / total as f64) * 100.0;
+                        progress_str = format!("({progress:.2}%)");
+                    }
                     match &msg.error_detail {
                         Some(error) => body.row(row_height, |mut row| {
                             row.col(|ui| {
@@ -411,7 +413,6 @@ impl PushInfo {
                         }
                     }
                 }
-            });
-        table
+            })
     }
 }

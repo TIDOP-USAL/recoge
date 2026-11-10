@@ -25,6 +25,7 @@ pub struct WindowState {
 }
 
 impl WindowState {
+    #[must_use]
     pub fn default() -> Self {
         Self {
             options: window_options(),
@@ -41,6 +42,7 @@ impl WindowState {
     }
 }
 
+#[must_use]
 pub fn window_options() -> WindowOptions {
     WindowOptions {
         id: Id::new("image_window"),
@@ -171,7 +173,7 @@ pub async fn load_image_info(
         }
         //self.options.data_is_loading = false;
         return Err(Error::Program("Can't inspect".to_string()));
-    };
+    }
     let mut image_inspect = inspect_result.unwrap();
     //trace!("image_inspect: {image_inspect:#?}");
 
@@ -185,62 +187,60 @@ pub async fn load_image_info(
         return Err(Error::Program("No image info".to_string()));
     };
 
-    let local_date = match image.date {
-        Some(replace_date) => replace_date,
-        None => {
-            let Some(created) = image_inspect.created.clone() else {
-                return Err(Error::Program("No date for image".to_string()));
-            };
-            chrono::DateTime::parse_from_rfc3339(&created)
-                .unwrap()
-                .into()
-        }
+    let local_date = if let Some(replace_date) = image.date {
+        replace_date
+    } else {
+        let Some(created) = image_inspect.created.clone() else {
+            return Err(Error::Program("No date for image".to_string()));
+        };
+        chrono::DateTime::parse_from_rfc3339(&created)
+            .unwrap()
+            .into()
     };
 
     // zot: Get associated images from all ImageCollection repos
     let mut remote_digests = Vec::new();
-    if is_named {
-        if let Ok(remote_images) = local_images
+    if is_named
+        && let Ok(remote_images) = local_images
             .clone()
             .get_images_in_remote(&mut zot_client)
             .await
-        {
-            for remote_image in remote_images {
-                // Date checks
-                let remote_date = remote_image.date;
-                trace!(
-                    "Date check. Local: {local_date:?}. Remote {}: {remote_date:?}",
-                    remote_image.get_image_name()
-                );
-                let offset = local_date - remote_date;
-                let date_ok = offset.abs().num_seconds() < 30;
-                // Digest check
-                let mut digest_found = false;
-                if let Some(remote_digest) = remote_image.digests.first() {
-                    for local_digest in &local_images.image_digests {
-                        // local_digest: repo@sha256:digest
-                        // remote_digests: sha256:digest
-                        let digest_parts = local_digest.split('@').collect::<Vec<_>>();
-                        let Some(local_digest) = digest_parts.last() else {
-                            continue;
-                        };
-                        trace!("Checking: {local_digest}");
-                        if remote_digest.contains(local_digest) {
-                            trace!("Digest match!");
-                            digest_found = true;
-                            break;
-                        }
+    {
+        for remote_image in remote_images {
+            // Date checks
+            let remote_date = remote_image.date;
+            trace!(
+                "Date check. Local: {local_date:?}. Remote {}: {remote_date:?}",
+                remote_image.get_image_name()
+            );
+            let offset = local_date - remote_date;
+            let date_ok = offset.abs().num_seconds() < 30;
+            // Digest check
+            let mut digest_found = false;
+            if let Some(remote_digest) = remote_image.digests.first() {
+                for local_digest in &local_images.image_digests {
+                    // local_digest: repo@sha256:digest
+                    // remote_digests: sha256:digest
+                    let digest_parts = local_digest.split('@').collect::<Vec<_>>();
+                    let Some(local_digest) = digest_parts.last() else {
+                        continue;
+                    };
+                    trace!("Checking: {local_digest}");
+                    if remote_digest.contains(local_digest) {
+                        trace!("Digest match!");
+                        digest_found = true;
+                        break;
                     }
                 }
+            }
 
-                if date_ok || digest_found {
-                    trace!("Images match, OK!");
-                    if let Some(digest) = remote_image.digests.first() {
-                        remote_digests.push(digest.clone());
-                    }
-                    let image_metadata = zot_client.fill_image_metadata(remote_image);
-                    remote_images_metadata.push(image_metadata);
+            if date_ok || digest_found {
+                trace!("Images match, OK!");
+                if let Some(digest) = remote_image.digests.first() {
+                    remote_digests.push(digest.clone());
                 }
+                let image_metadata = zot_client.fill_image_metadata(&remote_image);
+                remote_images_metadata.push(image_metadata);
             }
         }
     }
@@ -251,7 +251,7 @@ pub async fn load_image_info(
         if let Ok(images) = zot_client.get_digest_images(digest).await {
             for image in images {
                 // Not checking against local image, since they have the same digest on the registry
-                let image_metadata = zot_client.fill_image_metadata(image);
+                let image_metadata = zot_client.fill_image_metadata(&image);
                 trace!("Added {} by digest", image_metadata.full_alias_name);
                 remote_images_metadata.push(image_metadata);
             }
@@ -298,7 +298,7 @@ pub async fn load_image_info(
     };
     // Check through digests. Required on Docker@Windows
     // TODO refactor and remove
-    debug!("Remote digests: {:#?}", remote_images_digests);
+    debug!("Remote digests: {remote_images_digests:#?}");
     for local_digest in local_images.image_digests {
         // local_digest: repo@sha256:digest
         // remote_digests: sha256:digest
@@ -332,11 +332,11 @@ pub async fn load_image_info(
         delete_modal_data: None,
     });
     //self.open(data);
-    return Ok(locked_data.clone());
+    Ok(locked_data.clone())
 }
 
 impl WindowData {
-    pub async fn init(
+    pub fn init(
         &mut self,
         config: AppConfig,
         toasts_arc: Arc<AsyncMutex<Toasts>>,
@@ -351,7 +351,7 @@ impl WindowData {
     }
 
     // Swap a local image's info (reload)
-    pub async fn swap_image_info(&mut self, selected_image_name: String) -> Result<()> {
+    pub fn swap_image_info(&mut self, selected_image_name: String) -> Result<()> {
         let Some(ref mut image_data) = self.image_data else {
             return Err(Error::Program("Swap with no info".to_string()));
         };
@@ -375,9 +375,9 @@ impl WindowData {
 }
 
 pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
-    let data_arc_1 = Arc::clone(&data_arc);
-    let data_arc_2 = Arc::clone(&data_arc);
-    let data_arc_3 = Arc::clone(&data_arc);
+    let data_arc_1 = Arc::clone(data_arc);
+    let data_arc_2 = Arc::clone(data_arc);
+    let data_arc_3 = Arc::clone(data_arc);
     let data = block_on(data_arc_1.lock().into_future());
     if data.data_is_reloading {
         ui.set_cursor_icon(egui::CursorIcon::Wait);
@@ -442,7 +442,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                         data_is_reloading: _,
                     } = &mut *data;
                     image_data.as_mut().unwrap().delete_modal_data =
-                        Some(ModalData::new(selected_image_name.clone()));
+                        Some(ModalData::new(&selected_image_name));
                     drop(data);
                 }
                 if ui.button("⬆").on_hover_text("Subir a Registro").clicked() {
@@ -491,7 +491,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                                     Task::new().fire_async(async move {
                                         let mut data = arc.lock().await;
                                         data.data_is_reloading = true;
-                                        let _r = data.swap_image_info(image_name).await;
+                                        let _r = data.swap_image_info(image_name);
                                     });
                                 }
                                 /*if ui.button("📋").on_hover_text("Copiar nombre").clicked() {
@@ -502,19 +502,19 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                         }
                     });
                 ui.end_row();
-            };
+            }
 
             ui.label("ID local:");
-            ui.label(format!("{id}"));
+            ui.label(id.clone());
             ui.end_row();
 
             ui.label("Tamaño:");
             if let Some(image_size) = image_inspect.size {
                 ui.label(humansize::format_size(
-                    image_size as u64,
+                    image_size.cast_unsigned(),
                     humansize::DECIMAL,
                 ));
-            };
+            }
             ui.end_row();
 
             ui.label("Fecha de creación:");
@@ -536,7 +536,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
 
             ui.label("Autor:");
             let author = image_inspect.author.clone().unwrap_or(String::new());
-            ui.label(format!("{author}"));
+            ui.label(author);
             ui.end_row();
         });
     ui.separator();
@@ -558,7 +558,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                 }
                 None => "Desconocido",
             };
-            ui.label(format!("{local_str}"));
+            ui.label(local_str.to_string());
             ui.end_row();
 
             ui.label("Subida en el Registro:");
@@ -669,9 +669,10 @@ pub struct ModalData {
 }
 
 impl ModalData {
-    pub fn new(image: String) -> Self {
+    #[must_use]
+    pub fn new(image: &str) -> Self {
         Self {
-            image_name: image.clone(),
+            image_name: image.to_string(),
             force_deletion: false,
             table_rows: Arc::new(Mutex::new(Vec::new())),
             delete_progress: Arc::new(Mutex::new(DeleteProgress::NotStarted)),
@@ -694,7 +695,7 @@ impl ModalData {
                     ui.end_row();
 
                     ui.label("Forzar:")
-                        .on_hover_text(format!("La imagen se borrará aunque esté en uso"));
+                        .on_hover_text("La imagen se borrará aunque esté en uso".to_string());
                     ui.checkbox(&mut self.force_deletion, "")
                         .on_hover_text("Eliminar aunque esté en uso");
                     ui.end_row();

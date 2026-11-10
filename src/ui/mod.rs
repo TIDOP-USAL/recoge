@@ -175,6 +175,7 @@ impl MyApp {
         let upload_window_open_flag_arc = Arc::clone(&self.upload_window_open_flag);
         let toasts_arc = Arc::clone(&self.toasts);
 
+        #[allow(clippy::cast_precision_loss)]
         self.tasks.fire_async(async move {
             let mut image_info_window_state = image_info_window_state_arc.lock().await;
             window_is_loading.store(Arc::new(true.to_owned()));
@@ -186,8 +187,7 @@ impl MyApp {
                 toasts_arc,
                 main_list_reload_flag_arc,
                 upload_window_open_flag_arc,
-            )
-            .await;
+            );
             drop(data);
             let input_data = image_info_window::ImageInspectInput {
                 id: image_info_window::ImageInspectType::LocalNamed(image.get_image_name()),
@@ -219,7 +219,7 @@ impl MyApp {
                 .init(&config, main_list_reload_flag_arc, toasts_arc)
                 .await;
             window_is_loading.store(Arc::new(false.to_owned()));
-            if let Ok(_) = load_result {
+            if load_result.is_ok() {
                 remote_list_window_state.open();
                 ctx.request_repaint();
             } else {
@@ -398,7 +398,7 @@ impl eframe::App for MyApp {
                     ui.label("Lista no cargada");
                 }
             });
-            let image_list_should_reload = self.image_list_should_reload.lock().unwrap().clone();
+            let image_list_should_reload = *self.image_list_should_reload.lock().unwrap();
             if image_list_should_reload {
                 debug!("Some window flagged the main list to be updated");
                 let mut image_list_should_reload = self.image_list_should_reload.lock().unwrap();
@@ -431,7 +431,7 @@ impl eframe::App for MyApp {
                     } else {
                         self.image_table_options.search_field = None;
                     }
-                };
+                }
                 if self.image_table_options.search_field.is_some() {
                     let filter = ui
                         .text_edit_singleline(

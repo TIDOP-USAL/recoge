@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use futures_lite::stream::StreamExt;
 use log::{debug, error, trace, warn};
 use serde::{Deserialize, Serialize};
+use std::fmt::Write;
 use std::sync::{Arc, Mutex, mpsc::SyncSender};
 
 // All aliases for one image. All repos, tags, digests.
@@ -23,18 +24,20 @@ pub struct ImageCollection {
 }
 
 // TODO impl get Image from RepositoryInfo. Can't correlate digest
-
 impl ImageCollection {
+    #[must_use]
     pub fn get_id_value(&self) -> String {
         let id = self.image_digests.first().unwrap_or(&self.id);
         id.split("sha256:").last().unwrap_or("").to_string()
     }
 
     // Short version of the same digest
+    #[must_use]
     pub fn get_short_id(&self) -> String {
         self.get_id_value().chars().take(12).collect()
     }
 
+    #[must_use]
     pub fn to_images(&self) -> Vec<Image> {
         let mut images = Vec::new();
         for repo_info in &self.image_aliases {
@@ -69,10 +72,12 @@ pub struct RepositoryInfo {
 }
 
 impl RepositoryInfo {
+    #[must_use]
     pub fn get_image(&self) -> String {
         format!("{}:{}", self.repository, self.tag)
     }
 
+    #[must_use]
     pub fn get_stripped_repository(&self) -> String {
         let mut repo_name = self.repository.clone();
         // Strip domain from repo name
@@ -83,10 +88,10 @@ impl RepositoryInfo {
             && let Some(first) = parts.next()
         {
             // Is domain (crude)
-            if first.contains(".") || first.contains("localhost") || first.contains(":") {
+            if first.contains('.') || first.contains("localhost") || first.contains(':') {
                 let mut remainder = String::new();
                 for part in parts {
-                    remainder += &format!("{part}/");
+                    let _ = write!(remainder, "{part}/");
                 }
                 remainder.pop(); // remove trailing '/'
                 repo_name = remainder;
@@ -112,7 +117,7 @@ impl RepositoryInfo {
         };
         let mut repository_str = String::new();
         for part in repo_parts {
-            repository_str += &format!("{part}:");
+            let _ = write!(repository_str, "{part}:");
         }
         repository_str.pop(); // remove trailing ':'
 
@@ -168,7 +173,7 @@ impl TryFrom<&ImageInspect> for ImageCollection {
             // TODO fail?
             return Err(Error::Program("no date".to_string()));
         };
-        let image_digests = image.repo_digests.clone().unwrap_or(Vec::new());
+        let image_digests = image.repo_digests.clone().unwrap_or_default();
         Ok(Self {
             image_aliases,
             image_digests,
@@ -181,51 +186,58 @@ impl TryFrom<&ImageInspect> for ImageCollection {
 
 impl Image {
     // Get one of the image's digests, HR, not preferred as internal ID
+    #[must_use]
     pub fn get_id_value(&self) -> String {
         self.id.split("sha256:").last().unwrap_or("").to_string()
     }
 
     // Short version of the same digest
+    #[must_use]
     pub fn get_short_id(&self) -> String {
         self.get_id_value().chars().take(12).collect()
     }
 
     // Repo name only. Human readable
+    #[must_use]
     pub fn get_repo_name(&self) -> String {
         match &self.repository_info {
-            Some(repo_info) => repo_info.repository.to_string(),
+            Some(repo_info) => repo_info.repository.clone(),
             None => format!("<Sin nombre: {}>", self.get_short_id()),
         }
     }
 
+    #[must_use]
     pub fn has_image_name(&self) -> bool {
         self.repository_info.is_some()
     }
 
     // Full image name (repo:tag or id digest)
+    #[must_use]
     pub fn get_image_name(&self) -> String {
         if let Some(repo_info) = &self.repository_info {
             if repo_info.repository != "localhost" {
                 return repo_info.get_image();
-            } else {
-                // "localhost" means untagged image. There might me multiple of these: show/use short_id instead
-                return self.get_short_id();
             }
+            // "localhost" means untagged image. There might me multiple of these: show/use short_id instead
+            return self.get_short_id();
         }
         self.get_id_value()
     }
 
+    #[must_use]
     pub fn get_date_local(&self) -> String {
         utils::get_date_local(&self.date)
     }
 
+    #[must_use]
     pub fn get_relative_date(&self) -> String {
         utils::get_relative_date(&self.date)
     }
 
+    #[must_use]
     pub fn get_human_size(&self) -> String {
         if let Some(bytes) = self.size_bytes {
-            humansize::format_size(bytes as u64, humansize::DECIMAL)
+            humansize::format_size(bytes.cast_unsigned(), humansize::DECIMAL)
         } else {
             "Desconocido".to_string()
         }
@@ -354,7 +366,7 @@ impl Client {
                 if err_str.contains("code 404") {
                     return Err(ClientError::NotFound(format!("Image {image} not found")).err());
                 }
-                return Err(Error::Program(err_str));
+                Err(Error::Program(err_str))
             }
         }
     }
@@ -389,8 +401,8 @@ impl Client {
             .build();
         debug!("Using options: {options:#?}");
         let credentials = bollard::auth::DockerCredentials {
-            username: Some(reg_creds.0.to_string()),
-            password: Some(reg_creds.1.to_string()),
+            username: Some(reg_creds.0.clone()),
+            password: Some(reg_creds.1.clone()),
             ..Default::default()
         };
         trace!("using {credentials:#?}"); // Sensitive info
@@ -452,7 +464,7 @@ impl Client {
                 {
                     error!("Can't retag before pushing: {x:?}");
                     return Err(x);
-                };
+                }
             }
             debug!("Pushing {local_image_name} as {remote_image_name}");
 
@@ -461,8 +473,8 @@ impl Client {
                 .build();
             debug!("Using options: {options:#?}");
             let credentials = bollard::auth::DockerCredentials {
-                username: Some(reg_creds.0.to_string()),
-                password: Some(reg_creds.1.to_string()),
+                username: Some(reg_creds.0.clone()),
+                password: Some(reg_creds.1.clone()),
                 ..Default::default()
             };
             trace!("using {credentials:#?}"); // Sensitive info
