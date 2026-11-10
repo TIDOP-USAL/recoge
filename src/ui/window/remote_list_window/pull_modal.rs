@@ -71,10 +71,9 @@ impl ModalData {
                     let image_name = self.image.get_image_name();
                     ui.label("Copia adicional:").on_hover_text("La imagen se descargará también sin el dominio del Registro".to_string());
                     ui.horizontal(|ui| {
-                        if ui
-                            .checkbox(&mut self.save_without_prefix, "Copiar como")
+                        let copy = egui::Checkbox::new(&mut self.save_without_prefix, "Copiar como");
+			if ui.add_enabled(*self.pull_progress.lock().unwrap() != PullProgress::InProgress, copy)
                             .changed()
-                            && *self.pull_progress.lock().unwrap() != PullProgress::InProgress
                         {
                             *self.pull_progress.lock().unwrap() = PullProgress::NotStarted;
                         }

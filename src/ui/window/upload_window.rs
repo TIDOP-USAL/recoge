@@ -178,6 +178,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
     };
 
     let local_image_name = edit_info.selected_name.clone();
+    let can_edit = *push_info.progress.lock().unwrap() != PushProgress::InProgress;
 
     ui.set_width(500.0);
     ui.add_space(10.0);
@@ -195,29 +196,26 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             ui.label("Nuevo repositorio:");
             ui.horizontal(|ui| {
                 ui.label(format!("{}/", edit_info.remote_repo_prefix));
-                let repo = TextEdit::singleline(&mut edit_info.new_repository_name)
-                    .desired_width(200.0)
-                    .show(ui);
+                let repo =
+                    TextEdit::singleline(&mut edit_info.new_repository_name).desired_width(200.0);
+                let repo = ui.add_enabled(can_edit, repo);
                 ui.label(":");
-                let tag = TextEdit::singleline(&mut edit_info.new_tag)
-                    .hint_text("latest")
-                    .show(ui);
-                if (repo.response.changed() || tag.response.changed())
-                    && *push_info.progress.lock().unwrap() != PushProgress::InProgress
-                {
+                let tag = TextEdit::singleline(&mut edit_info.new_tag).hint_text("latest");
+                let tag = ui.add_enabled(can_edit, tag);
+                if (repo.changed() || tag.changed()) {
                     *push_info.progress.lock().unwrap() = PushProgress::NotStarted;
                 }
 
                 let hover_pos = ui.pointer_hover_pos();
                 if let Some(hover_pos) = hover_pos {
                     // TODO time
-                    if repo.response.rect.contains(hover_pos) {
-                        egui::Tooltip::for_widget(&repo.response).show(|ui| {
+                    if repo.rect.contains(hover_pos) {
+                        egui::Tooltip::for_widget(&repo).show(|ui| {
                             ui.label("Nombre del repositorio para la imagen");
                         });
                     }
-                    if tag.response.rect.contains(hover_pos) {
-                        egui::Tooltip::for_widget(&tag.response).show(|ui| {
+                    if tag.rect.contains(hover_pos) {
+                        egui::Tooltip::for_widget(&tag).show(|ui| {
                             ui.label("Versión de la imagen (tag)");
                         });
                     }
@@ -226,23 +224,29 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             });
             ui.end_row();
             ui.label("Es la última versión:");
-            ui.checkbox(
+            let latest = egui::Checkbox::new(
                 &mut edit_info.ui_push_as_latest,
                 "Subir también como latest",
-            )
-            .on_hover_text("Se subirá una copia adicional de la imagen con el tag \"latest\"");
+            );
+            let latest = ui
+                .add_enabled(can_edit, latest)
+                .on_hover_text("Se subirá una copia adicional de la imagen con el tag \"latest\"");
             ui.end_row();
             ui.label("Modo limpio:");
-            ui.checkbox(
+            let clean = egui::Checkbox::new(
                 &mut edit_info.ui_clean_local,
                 "No crear nuevos nombres en local",
-            )
-            .on_hover_text(
+            );
+            let clean = ui.add_enabled(can_edit, clean).on_hover_text(
                 r"No dejar nuevos nombres en local asociados al registro tras la subida.
 Durante la subida de imágenes, se crearán alias locales con el nombre del registro.
 Este modo elimina estas imágenes creadas para no ensuciar la lista local de imágenes.",
             );
             ui.end_row();
+            if (latest.changed() || clean.changed()) {
+                *push_info.progress.lock().unwrap() = PushProgress::NotStarted;
+            }
+
             ui.label("Se subirá como:");
             ui.vertical(|ui| {
                 let new_name = edit_info.get_new_name();
