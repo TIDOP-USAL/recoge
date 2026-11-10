@@ -1,7 +1,8 @@
 [package]
 name = "recoge"
 version = "0.1.0"
-authors = ["Miguel Ángel Sánchez Herreros"]
+authors = ["Miguel Ángel Sánchez Herreros", "Tidop Research Group <tidop@usal.es>"]
+license = "GPL-3.0-or-later"
 edition = "2024"
 rust-version = "1.92"
 
