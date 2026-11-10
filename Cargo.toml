@@ -1,10 +1,10 @@
 [package]
 name = "recoge"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Miguel Ángel Sánchez Herreros", "Tidop Research Group <tidop@usal.es>"]
 license = "GPL-3.0-or-later"
 edition = "2024"
-rust-version = "1.92"
+rust-version = "1.95"
 
 [dependencies]
 bollard = "0.21.0"
