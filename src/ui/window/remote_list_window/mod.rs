@@ -14,6 +14,7 @@ use egui::{Id, Modal};
 use egui_notify::Toasts;
 use futures::executor::block_on;
 use futures::lock::Mutex as AsyncMutex;
+use log::{debug, error, info, trace};
 use std::sync::{Arc, Mutex};
 use table_list::table_ui;
 
@@ -229,7 +230,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
 
     /* TODO this was optional. now could be a dangling Arc (default)
         let Some(main_list_reload_flag) = main_list_reload_flag else {
-            eprintln!("Window opened without main_list_reload_flag");
+            error!("Window opened without main_list_reload_flag");
             ui.close_kind(egui::UiKind::Window);
             return;
     };*/
@@ -242,7 +243,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
         }
 
         if *remote_repository_list_status == ListStatus::NeedsReload {
-            println!("Updating repo list");
+            debug!("Updating repo list");
             *remote_repository_list_status = ListStatus::Loading;
             let mut tasks: Task<()> = Task::new();
             let data_arc_2 = Arc::clone(&data_arc);
@@ -251,12 +252,13 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
             tasks.fire_async(async move {
                 match tag_list::reload_repo_list(data_arc_2).await {
                     Ok(repos) => {
-                        println!("OK repo load");
+                        debug!("OK repo load");
                         let mut data = data_arc_3.lock().await;
                         data.remote_repository_list_status = ListStatus::Loaded;
                         ctx.request_repaint();
                     }
                     Err(_) => {
+                        debug!("Repo load failed");
                         let mut data = data_arc_3.lock().await;
                         data.remote_repository_list_status = ListStatus::Failed;
                     }
@@ -268,7 +270,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
             && *remote_tag_list_status == ListStatus::NeedsReload
         {
             if let Some(selected_repo) = selected_repository.clone() {
-                println!("Refreshing tags for {selected_repo}");
+                debug!("Refreshing tags for {selected_repo}");
                 *remote_tag_list_status = ListStatus::Loading;
                 let mut tasks: Task<()> = Task::new();
                 let data_arc_2 = Arc::clone(&data_arc);
@@ -277,11 +279,13 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                 tasks.fire_async(async move {
                     match tag_list::load_tag_list(data_arc_2, selected_repo).await {
                         Ok(_) => {
+                            debug!("OK tag load");
                             let mut data = data_arc_3.lock().await;
                             data.remote_tag_list_status = ListStatus::Loaded;
                             ctx.request_repaint();
                         }
                         Err(_) => {
+                            debug!("Tag load failed");
                             let mut data = data_arc_3.lock().await;
                             data.remote_tag_list_status = ListStatus::Failed;
                         }
@@ -295,7 +299,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
             ui.disable();
         }
         if *remote_image_list_status == ListStatus::NeedsReload {
-            println!("Updating image list");
+            debug!("Updating image list");
             *remote_image_list_status = ListStatus::Loading;
             let mut tasks: Task<()> = Task::new();
             let data_arc_2 = Arc::clone(&data_arc);
@@ -304,12 +308,13 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
             tasks.fire_async(async move {
                 match table_list::load_list_data(data_arc_2).await {
                     Ok(repos) => {
-                        println!("OK repo load");
+                        debug!("OK repo load");
                         let mut data = data_arc_3.lock().await;
                         data.remote_image_list_status = ListStatus::Loaded;
                         ctx.request_repaint();
                     }
                     Err(_) => {
+                        error!("Repo load failed");
                         let mut data = data_arc_3.lock().await;
                         data.remote_image_list_status = ListStatus::Failed;
                     }

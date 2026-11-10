@@ -13,6 +13,7 @@ use egui::{Align, Layout, UiBuilder};
 use egui_notify::Toasts;
 use futures::executor::block_on;
 use futures::lock::Mutex as AsyncMutex;
+use log::{debug, error, warn};
 use main_list::ImageTableOptions;
 use main_list::TableSortType;
 use std::sync::{Arc, Mutex};
@@ -118,7 +119,7 @@ impl MyApp {
             let mut global_data = global_data_arc.lock().await;
             global_data.config = config;
             global_data.config_state = LoadState::Loaded;
-            println!("Config loaded!");
+            debug!("Config loaded!");
             if global_data.config.is_missing_credentials() {
                 let mut toasts = toasts_arc.lock().await;
                 toasts
@@ -126,7 +127,7 @@ impl MyApp {
                         "No se ha configurado el usuario del Registro. Entra en la configuración ⚙",
                     )
                     .duration(std::time::Duration::from_secs(20));
-                println!("Config is missing credentials");
+                warn!("Config is missing credentials");
             }
         });
     }
@@ -219,7 +220,7 @@ impl MyApp {
                 remote_list_window_state.open();
                 ctx.request_repaint();
             } else {
-                println!("Returned an error");
+                error!("Remote list load failed: {load_result:?}");
             }
         });
     }
@@ -396,7 +397,7 @@ impl eframe::App for MyApp {
             });
             let image_list_should_reload = self.image_list_should_reload.lock().unwrap().clone();
             if image_list_should_reload {
-                println!("Some window flagged the main list to be updated");
+                debug!("Some window flagged the main list to be updated");
                 let mut image_list_should_reload = self.image_list_should_reload.lock().unwrap();
                 *image_list_should_reload = false;
                 drop(image_list_should_reload);
@@ -405,7 +406,7 @@ impl eframe::App for MyApp {
 
             let upload_window_open_flag = self.upload_window_open_flag.lock().unwrap().clone();
             if let Some(repo) = upload_window_open_flag {
-                println!("Open upload window for {repo:?}");
+                debug!("Open upload window for {repo:?}");
                 let mut upload_window_open_flag = self.upload_window_open_flag.lock().unwrap();
                 *upload_window_open_flag = None;
                 drop(upload_window_open_flag);

@@ -6,6 +6,7 @@ use bollard::query_parameters::{ListImagesOptionsBuilder, TagImageOptionsBuilder
 use bollard::{Docker, plugin::ImageSummary};
 use chrono::{DateTime, Local, Utc};
 use futures_lite::stream::StreamExt;
+use log::{debug, error, trace, warn};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex, mpsc::SyncSender};
 
@@ -92,7 +93,7 @@ impl RepositoryInfo {
                 repo_name = remainder;
             }
         }
-        println!("parsed name: {repo_name:?}");
+        trace!("Stripped repo parsed name: {repo_name:?}");
         repo_name
     }
 
@@ -279,21 +280,21 @@ pub struct Client {
 
 impl Client {
     pub async fn new() -> Result<Self> {
-        println!("Connecting to Docker...");
+        debug!("Connecting to Docker...");
         #[allow(unused)]
         let mut docker = Docker::connect_with_local_defaults();
 
         #[cfg(not(target_os = "windows"))]
         {
             if docker.is_err() {
-                println!("Connecting to Podman...");
+                debug!("Connecting to Podman...");
                 docker = Docker::connect_with_podman_defaults();
             }
         }
         #[cfg(target_family = "unix")]
         {
             if docker.is_err() {
-                println!("Connecting with UNIX sockets...");
+                debug!("Connecting with UNIX sockets...");
                 docker = Docker::connect_with_socket_defaults();
                 if docker.is_err() {
                     let home_dir = match std::env::home_dir() {
@@ -303,7 +304,7 @@ impl Client {
                         }
                         None => "~".to_string(),
                     };
-                    println!("Connecting with macOS UNIX sockets...");
+                    debug!("Connecting with macOS UNIX sockets...");
                     docker = Docker::connect_with_socket(
                         &format!("{home_dir}/.docker/run/docker.sock"),
                         120,
@@ -315,27 +316,27 @@ impl Client {
         let docker = match docker {
             Ok(x) => x,
             Err(x) => {
-                println!("Can't connect: {x:?}");
+                error!("Can't connect to Docker: {x:?}");
                 return Err(Error::Program(
                     "Can't connect to container services".to_string(),
                 ));
             }
         };
-        println!("Connected!");
-        //println!("{docker:?}");
+        debug!("Connected!");
+        trace!("{docker:?}");
         Ok(Self { client: docker })
     }
 
     // Image list, grouped by same image
     pub async fn image_collection_list(&self) -> Result<Vec<ImageCollection>> {
         let docker = &self.client;
-        println!("Getting image list...");
+        debug!("Getting image list...");
         let options = ListImagesOptionsBuilder::default().all(false).build();
         let images = match docker.list_images(Some(options)).await {
             Ok(images) => images,
             Err(x) => {
                 let err_str = x.to_string();
-                eprintln!("{err_str}");
+                error!("Can't list local images {err_str}");
                 return Err(Error::Program(err_str));
             }
         };
@@ -343,12 +344,12 @@ impl Client {
         let mut list = Vec::new();
         for summary in images {
             let Ok(image_collection) = ImageCollection::try_from(&summary) else {
-                println!("Error: skipping invalid image collection");
+                warn!("Error: skipping invalid image collection");
                 continue;
             };
             list.push(image_collection);
         }
-        println!("{list:#?}");
+        trace!("Local image collections: {list:#?}");
         Ok(list)
     }
 
@@ -362,22 +363,22 @@ impl Client {
                 None => &collection.get_short_id(),
             };
             let size = collection.size_bytes;
-            println!("Size collection {id}: {size:?}");
+            trace!("Size collection {id}: {size:?}");
             images.append(&mut collection.to_images());
         }
-        println!("{images:#?}");
+        trace!("Local images: {images:#?}");
         Ok(images)
     }
 
     pub async fn image_inspect(&self, image: String) -> Result<ImageInspect> {
         let docker = &self.client;
-        println!("Inspecting image!");
+        debug!("Inspecting image!");
         // TODO bug: Docker returns wrong size here?. Correct one on image_list.
         match docker.inspect_image(&image).await {
             Ok(image) => Ok(image.clone()),
             Err(x) => {
                 let err_str = x.to_string();
-                eprintln!("{err_str}");
+                error!("Can't inspect local image: {err_str}");
                 if err_str.contains("code 404") {
                     return Err(ClientError::NotFound(format!("Image {image} not found")).err());
                 }
@@ -396,7 +397,7 @@ impl Client {
             .build();
         if let Err(x) = docker.tag_image(&image, Some(tag_options)).await {
             let err_str = x.to_string();
-            eprintln!("{err_str}");
+            error!("Can't tag local image: {err_str}");
             return Err(Error::Program(err_str));
         }
         Ok(())
@@ -410,43 +411,43 @@ impl Client {
         rename_name: Option<String>,
     ) -> Result<()> {
         let docker = &self.client;
-        println!("Pulling image...");
+        debug!("Pulling image...");
         let options = bollard::query_parameters::CreateImageOptionsBuilder::default()
             .from_image(&image)
             .build();
-        println!("options: {options:#?}");
+        debug!("Using options: {options:#?}");
         let credentials = bollard::auth::DockerCredentials {
             username: Some(reg_creds.0.to_string()),
             password: Some(reg_creds.1.to_string()),
             ..Default::default()
         };
-        println!("using {credentials:#?}");
+        trace!("using {credentials:#?}"); // Sensitive info
         let mut a = docker.create_image(Some(options), None, Some(credentials));
         while let Some(state) = a.next().await {
-            //println!("{state:?}");
+            trace!("Pull state: {state:?}");
             let tx = tx.lock().unwrap();
             match state {
                 Ok(info) => {
                     // TODO send timestamp?
                     match tx.send(info) {
                         Err(x) => {
-                            println!("e: {:#?}", x.0);
+                            error!("Can't send pull state: {:#?}", x.0);
                         }
                         Ok(_x) => (),
                     }
                 }
                 Err(x) => {
-                    println!("Pull error {x:?}");
+                    error!("Pull error {x:?}");
                     // TODO return err?
                 }
             }
         }
-        println!("Pull OK: {image}");
+        debug!("Pull OK: {image}");
         // Pull OK. Retag if required
         if let Some(new_repo_tag) = rename_name {
-            println!("Copying {image} to {new_repo_tag}");
+            debug!("Copying {image} to {new_repo_tag}");
             let r = self.image_add_tag(image, new_repo_tag).await;
-            println!("Rename result: {r:?}");
+            debug!("Rename result: {r:?}");
         }
         Ok(())
     }
@@ -462,7 +463,7 @@ impl Client {
         tx: Arc<Mutex<SyncSender<bollard::config::PushImageInfo>>>,
     ) -> Result<()> {
         let docker = &self.client;
-        println!("Pushing image...");
+        debug!("Pushing image...");
         let local_image_name = local_image.get_image();
         let mut remote_images = remote_images;
         let mut new_local_image_names = Vec::new();
@@ -477,39 +478,39 @@ impl Client {
                     .image_add_tag(local_image_name.clone(), remote_image_name.clone())
                     .await
                 {
-                    println!("Can't retag before pushing: {x:?}");
+                    error!("Can't retag before pushing: {x:?}");
                     return Err(x);
                 };
             }
-            println!("Pushing {local_image_name} as {remote_image_name}");
+            debug!("Pushing {local_image_name} as {remote_image_name}");
 
             let options = bollard::query_parameters::PushImageOptionsBuilder::default()
                 .tag(&remote_image.tag)
                 .build();
-            println!("options: {options:#?}");
+            debug!("Using options: {options:#?}");
             let credentials = bollard::auth::DockerCredentials {
                 username: Some(reg_creds.0.to_string()),
                 password: Some(reg_creds.1.to_string()),
                 ..Default::default()
             };
-            println!("using {credentials:#?}");
+            trace!("using {credentials:#?}"); // Sensitive info
             let mut a =
                 docker.push_image(&remote_image.repository, Some(options), Some(credentials));
             while let Some(state) = a.next().await {
-                //println!("{state:?}");
+                trace!("Push state: {state:?}");
                 let tx = tx.lock().unwrap();
                 match state {
                     Ok(info) => {
                         // TODO send timestamp?
                         match tx.send(info) {
                             Err(x) => {
-                                println!("e: {:#?}", x.0);
+                                error!("Can't send push state: {:#?}", x.0);
                             }
                             Ok(_x) => (),
                         }
                     }
                     Err(x) => {
-                        println!("Push error {x:?}");
+                        error!("Push error {x:?}");
                         let error_detail = Some(bollard::config::ErrorDetail {
                             code: None,
                             message: format!("{x:?}").into(),
@@ -520,7 +521,7 @@ impl Client {
                         };
                         match tx.send(error) {
                             Err(x) => {
-                                println!("e: {:#?}", x.0);
+                                error!("Can't send push state: {:#?}", x.0);
                             }
                             Ok(_x) => (),
                         }
@@ -528,7 +529,7 @@ impl Client {
                     }
                 }
             }
-            println!("Push OK: {remote_image_name}");
+            debug!("Push OK: {remote_image_name}");
         }
         // Images were pushed
         if clean_local {
@@ -547,22 +548,22 @@ impl Client {
         noprune: bool, // Do not delete untagged parent images
     ) -> Result<Vec<bollard::config::ImageDeleteResponseItem>> {
         let docker = &self.client;
-        println!("Deleting image");
+        debug!("Deleting image");
         let options = bollard::query_parameters::RemoveImageOptions {
             force,
             noprune,
             ..Default::default()
         };
-        println!("options: {options:#?}");
+        debug!("Using options: {options:#?}");
         let result = match docker.remove_image(&image, Some(options), None).await {
             Ok(x) => x,
             Err(x) => {
                 // TODO error parsing
-                println!("Error while deleting {image}: {x:?}");
+                error!("Error while deleting {image}: {x:?}");
                 return Err(Error::Program(format!("{x:?}")));
             }
         };
-        println!("Delete OK: {result:?}");
+        debug!("Delete OK: {result:?}");
         Ok(result)
     }
 }

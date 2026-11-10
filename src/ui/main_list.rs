@@ -5,6 +5,7 @@ use egui::containers::scroll_area::DragScroll;
 use egui_extras::Column;
 use egui_extras::TableBuilder;
 use futures::executor::block_on;
+use log::{debug, error};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -41,7 +42,7 @@ pub fn image_list_table(mut ui: &mut egui::Ui, app: &mut super::MyApp) {
             Column::remainder()
                 //.at_least(80.0)
                 .clip(true)
-                .resizable(true),
+                .resizable(false),
         )
         .column(Column::auto().resizable(false).at_least(65.0))
         .column(Column::auto().resizable(false).at_least(89.0))
@@ -110,7 +111,7 @@ pub fn image_list_table(mut ui: &mut egui::Ui, app: &mut super::MyApp) {
 
 fn sort_table(app: &mut super::MyApp) {
     let options = app.image_table_options.clone();
-    println!("Sorting image table: {options:#?}");
+    debug!("Sorting image table: {options:#?}");
     match options.sort_type {
         TableSortType::None => {}
         TableSortType::Date => {
@@ -162,11 +163,11 @@ fn image_table_row(
             ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
                 if ui.button("⬆").on_hover_text("Subir a Registro").clicked() {
                     //*boolean = !*boolean;
-                    println!("Subir {image_name}");
+                    debug!("Push {image_name}");
                     let Ok(selected_repo_info) =
                         RepositoryInfo::try_from_repo_tag(image_name.clone())
                     else {
-                        eprintln!("Invalid repo_tag");
+                        error!("Invalid repo_tag: {image_name}");
                         return;
                     };
                     *Arc::clone(&app.upload_window_open_flag).lock().unwrap() =
@@ -181,7 +182,7 @@ fn image_table_row(
                     let image_info_window_is_loading =
                         *app.image_info_window_is_loading.load().clone();
                     if !image_info_window_is_loading {
-                        println!("Inspect {image_name}");
+                        debug!("Inspect {image_name}");
 
                         app.image_info_window_is_loading
                             .store(Arc::new(true.to_owned()));

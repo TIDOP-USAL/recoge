@@ -8,6 +8,7 @@ use eframe::egui;
 use egui::Id;
 use egui::widgets::TextEdit;
 use egui_extras::{Column, TableBuilder};
+use log::{debug, error, info, trace};
 use std::sync::{Arc, Mutex};
 
 pub struct WindowState {
@@ -130,7 +131,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
     } = data;
 
     let Some(selected_image_info) = selected_image_info else {
-        eprintln!("Window opened without selected_image_info");
+        error!("Window opened without selected_image_info");
         ui.close_kind(egui::UiKind::Window);
         return;
     };
@@ -151,7 +152,8 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
         });
     }
     let Some(edit_info) = edit_info else {
-        eprintln!("Fatal");
+        error!("Fatal: no edit_info");
+        // TODO panic?
         ui.close_kind(egui::UiKind::Window);
         return;
     };
@@ -165,7 +167,8 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
         });
     }
     let Some(push_info) = push_info else {
-        eprintln!("Fatal");
+        error!("Fatal: no push_info");
+        // TODO panic?
         ui.close_kind(egui::UiKind::Window);
         return;
     };
@@ -298,7 +301,7 @@ Este modo elimina estas im√°genes creadas para no ensuciar la lista local de im√
                 let mut tasks: Task<()> = Task::new();
                 let Ok(zot_client) = zot::Client::new(&config) else {
                     ui.close_kind(egui::UiKind::Window);
-                    return println!("Invalid config");
+                    return error!("Invalid config");
                 };
                 let local_image_info = selected_image_info.clone();
                 let remote_image_info = edit_info.get_new_remote_repo_info();
@@ -319,7 +322,7 @@ Este modo elimina estas im√°genes creadas para no ensuciar la lista local de im√
                 tasks.fire_async(async move {
                     let tx_arc = Arc::clone(&tx_arc);
                     let Ok(docker) = container::Client::new().await else {
-                        return println!("No docker client");
+                        return error!("No docker client");
                     };
 
                     *progress_arc.lock().unwrap() = match docker
@@ -333,12 +336,12 @@ Este modo elimina estas im√°genes creadas para no ensuciar la lista local de im√
                         .await
                     {
                         Ok(_) => {
-                            println!("Push OK");
+                            info!("Push OK");
                             // TODO trigger main list refresh?
                             PushProgress::Ok
                         }
                         Err(x) => {
-                            println!("Pull failed: {x:?}");
+                            error!("Pull failed: {x:?}");
                             PushProgress::Failed
                         }
                     }

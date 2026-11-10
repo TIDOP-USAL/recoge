@@ -10,6 +10,7 @@ use egui::{Align, Layout, UiBuilder};
 use egui_notify::Toasts;
 use futures::executor::block_on;
 use futures::lock::Mutex as AsyncMutex;
+use log::{debug, error, info, trace};
 use std::sync::Arc;
 
 pub struct WindowState {
@@ -84,7 +85,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
         let new_config = new_config.clone();
         *unsaved_changes = true;
         tasks.fire_async(async move {
-            println!("Updating temporal config");
+            trace!("Updating temporal config");
             config_update(new_config, &global_data_arc);
         });
     }
@@ -160,7 +161,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             ui.end_row();
             ui.label("");
             if ui.button("Comprobar").clicked() {
-                println!("Check creds");
+                debug!("Checking credentials");
                 let mut tasks: Task<()> = Task::new();
                 let creds_config = app_config_copy.clone();
                 let toasts_arc = Arc::clone(toasts_arc);
@@ -196,7 +197,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             .on_hover_text("Guardar la configuración permanentemente")
             .clicked()
         {
-            println!("Guardar");
+            debug!("Save action");
             let mut tasks: Task<()> = Task::new();
             let global_data_arc = Arc::clone(global_data_arc);
             let toasts_arc = Arc::clone(toasts_arc);
@@ -224,8 +225,8 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
 
 fn config_update(new_config: AppConfig, global_data_arc: &Arc<AsyncMutex<GlobalData>>) {
     let mut global_data = block_on(global_data_arc.lock().into_future());
-    println!("locked global data");
-    println!("new data: {new_config:?}");
+    trace!("Locked global data");
+    trace!("new data: {new_config:?}");
     global_data.config.remote_url = new_config.remote_url;
     global_data.config.user = new_config.user;
     global_data.config.password = new_config.password;
@@ -236,14 +237,14 @@ fn config_save(
     toasts_arc: &Arc<AsyncMutex<Toasts>>,
 ) {
     let global_data = block_on(global_data_arc.lock().into_future());
-    println!("locked global data");
+    trace!("Locked global data");
     let result = global_data.config.serialize_config();
     let mut toasts = block_on(toasts_arc.lock().into_future());
     if let Ok(()) = result {
-        println!("Saved config file");
+        info!("Saved config file");
         toasts.success("Configuración guardada correctamente");
     } else {
-        println!("Error while saving config file");
+        error!("Error while saving config file");
         toasts.error("Error al guardar la configuración");
     }
 }

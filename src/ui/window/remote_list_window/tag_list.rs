@@ -14,6 +14,7 @@ use egui::containers::scroll_area::DragScroll;
 use egui::{Id, Modal};
 use egui_extras::{Column, TableBuilder};
 use futures::lock::Mutex as AsyncMutex;
+use log::{debug, error, info, trace};
 use std::sync::Arc;
 
 pub async fn reload_repo_list(data: Arc<AsyncMutex<WindowData>>) -> Result<Vec<String>, ()> {
@@ -71,11 +72,11 @@ pub async fn get_repo_list(
             .duration(std::time::Duration::from_secs(3));
         return Err(());
     };
-    println!("Loading remote repository list");
+    info!("Loading remote repository list");
     let mut remote_repository_list = match client.get_repository_list().await {
         Ok(x) => x,
         Err(x) => {
-            println!("error: {x:?}");
+            error!("Can't load remote repositories: {x:?}");
             toasts
                 .lock()
                 .await
@@ -84,7 +85,7 @@ pub async fn get_repo_list(
             return Err(());
         }
     };
-    println!("{remote_repository_list:#?}");
+    trace!("{remote_repository_list:#?}");
     remote_repository_list.sort();
     Ok(remote_repository_list)
 }
@@ -106,11 +107,11 @@ pub async fn load_tag_list(
             .duration(std::time::Duration::from_secs(3));
         return Err(());
     };
-    println!("Loading remote tag list for {repository}");
+    info!("Loading remote tag list for {repository}");
     let mut remote_image_list = match client.get_repo_images(repository).await {
         Ok(x) => x,
         Err(x) => {
-            println!("error: {x:?}");
+            error!("Can't load remote tags: {x:?}");
             toasts
                 .lock()
                 .await
@@ -121,7 +122,7 @@ pub async fn load_tag_list(
     };
     remote_image_list.sort_by_key(|x| x.date); // Oldest image first
     remote_image_list.reverse();
-    println!("{remote_image_list:#?}");
+    trace!("{remote_image_list:#?}");
     let mut data_locked = data.lock().await;
     data_locked.remote_tag_list = remote_image_list;
     Ok(())
@@ -229,7 +230,7 @@ pub fn ui(
                         .on_hover_text(format!("Seleccionar el repositorio {repo}"))
                         .clicked()
                     {
-                        println!("New selected repo: {selected_repository:?}");
+                        debug!("New selected repo: {selected_repository:?}");
                         *remote_tag_list_status = ListStatus::NeedsReload;
                     }
                 }
@@ -463,8 +464,8 @@ fn image_table_row(
                     .on_hover_text("Descargar de Registro")
                     .clicked()
                 {
-                    println!("Pull modal for {image_name}");
-                    //println!("{image:#?}");
+                    debug!("Pull modal for {image_name}");
+                    trace!("{image:#?}");
                     *pull_modal_data = Some(PullModalData::new(image.clone(), config.clone()));
                 }
                 if ui
@@ -472,7 +473,7 @@ fn image_table_row(
                     .on_hover_text(format!("Eliminar la imagen {image_name}"))
                     .clicked()
                 {
-                    println!("Delete modal for: {image_name}");
+                    debug!("Delete modal for: {image_name}");
                     *delete_modal_data = Some(DeleteModalData::new(image_name, config.clone()));
                 }
                 /*if ui
@@ -480,7 +481,7 @@ fn image_table_row(
                     .on_hover_text("Información de la imagen")
                     .clicked()
                 {
-                    println!("Info de {image_name}");
+                    debug!("Inspect {image_name}");
                 }*/
             });
         });
@@ -503,7 +504,7 @@ fn image_table_row(
 }
 
 fn sort_table(options: ImageTableOptions, list: &mut Vec<container::Image>) {
-    println!("Sorting image table: {options:#?}");
+    debug!("Sorting image table: {options:#?}");
     match options.sort_type {
         TableSortType::None => {}
         TableSortType::Date => {

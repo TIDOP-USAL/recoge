@@ -6,6 +6,7 @@ use eframe::egui;
 use egui::{Id, Modal};
 use egui_extras::{Column, TableBuilder};
 use futures::lock::Mutex as AsyncMutex;
+use log::{debug, error, info, trace};
 use std::sync::{Arc, Mutex};
 
 #[derive(PartialEq, Clone)]
@@ -65,7 +66,7 @@ impl ModalData {
                 container::RepositoryInfo::try_from_repo_tag(self.image_name.clone())
             else {
                 ui.close_kind(egui::UiKind::Window);
-                println!("Invalid image");
+                error!("Invalid image");
                 panic!();
             };
 
@@ -105,7 +106,7 @@ impl ModalData {
                         let progress_arc = Arc::clone(&self.delete_progress);
                         let Ok(mut zot_client) = zot::Client::new(&self.config) else {
                             ui.close_kind(egui::UiKind::Window);
-                            return println!("Invalid config");
+                            return error!("Invalid config");
                         };
 
                         tasks.fire_async(async move {
@@ -114,11 +115,11 @@ impl ModalData {
                                 .await
                             {
                                 Ok(mut x) => {
-                                    println!("Delete OK");
+                                    info!("Delete OK");
                                     DeleteProgress::Ok
                                 }
                                 Err(x) => {
-                                    println!("Delete failed: {x:?}");
+                                    error!("Delete failed: {x:?}");
                                     DeleteProgress::Failed
                                 }
                             }

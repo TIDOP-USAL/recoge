@@ -13,6 +13,7 @@ use egui_extras::{Column, TableBuilder};
 use egui_notify::Toasts;
 use futures::executor::block_on;
 use futures::lock::Mutex as AsyncMutex;
+use log::{debug, error, info, trace};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
@@ -106,7 +107,7 @@ pub async fn load_image_info(
             id
         }
     };
-    println!("Inspecting: {image_name}");
+    debug!("Inspecting: {image_name}");
     let Ok(docker) = container::Client::new().await else {
         let toasts = data.lock().await.toasts_arc.clone();
         toasts
@@ -141,7 +142,7 @@ pub async fn load_image_info(
         && is_named
         && let Ok(remote_info) = zot::get_remote_info(image_name.clone(), &mut zot_client).await
     {
-        println!("zot returned: {remote_info:#?}");
+        debug!("zot returned: {remote_info:#?}");
         // TODO refactor
         image_in_remote_option = Some(remote_info.is_in_remote);
         if remote_info.is_in_remote
@@ -154,7 +155,7 @@ pub async fn load_image_info(
     }
 
     if let Err(x) = inspect_result {
-        println!("Error when inspecting local image: {x:?}");
+        error!("Error when inspecting local image: {x:?}");
         let toasts = data.lock().await.toasts_arc.clone();
         let mut toasts = toasts.lock().await;
         if x.is_not_found() {
@@ -171,7 +172,7 @@ pub async fn load_image_info(
         return Err(Error::Program("Can't inspect".to_string()));
     };
     let mut image_inspect = inspect_result.unwrap();
-    //println!("image_inspect: {image_inspect:#?}");
+    //trace!("image_inspect: {image_inspect:#?}");
 
     let Ok(mut local_images) = container::ImageCollection::try_from(&image_inspect) else {
         let toasts = data.lock().await.toasts_arc.clone();
@@ -206,7 +207,7 @@ pub async fn load_image_info(
             for remote_image in remote_images {
                 // Date checks
                 let remote_date = remote_image.date;
-                println!(
+                trace!(
                     "Date check. Local: {local_date:?}. Remote {}: {remote_date:?}",
                     remote_image.get_image_name()
                 );
@@ -222,9 +223,9 @@ pub async fn load_image_info(
                         let Some(local_digest) = digest_parts.last() else {
                             continue;
                         };
-                        println!("Checking: {local_digest}");
+                        trace!("Checking: {local_digest}");
                         if remote_digest.contains(local_digest) {
-                            println!("Digest match!");
+                            trace!("Digest match!");
                             digest_found = true;
                             break;
                         }
@@ -232,7 +233,7 @@ pub async fn load_image_info(
                 }
 
                 if date_ok || digest_found {
-                    println!("Images match, OK!");
+                    trace!("Images match, OK!");
                     if let Some(digest) = remote_image.digests.first() {
                         remote_digests.push(digest.clone());
                     }
@@ -250,7 +251,7 @@ pub async fn load_image_info(
             for image in images {
                 // Not checking against local image, since they have the same digest on the registry
                 let image_metadata = zot_client.fill_image_metadata(image);
-                println!("Added {} by digest", image_metadata.full_alias_name);
+                trace!("Added {} by digest", image_metadata.full_alias_name);
                 remote_images_metadata.push(image_metadata);
             }
         }
@@ -260,7 +261,7 @@ pub async fn load_image_info(
     local_images.size_bytes = image.size_bytes;
     image_inspect.size = image.size_bytes;
 
-    //println!("local_images: {local_images:#?}");
+    //trace!("local_images: {local_images:#?}");
     // Set window parameters. TODO send image itself?
     let image_inspect = Some(image_inspect.clone());
     let selected_image_name = image_name;
@@ -274,21 +275,21 @@ pub async fn load_image_info(
         if in_remote {
             // Image is in remote. Compare dates
             if let Some(remote_date) = remote_image_date_option {
-                println!("Date check. Local: {local_date:?}. Remote: {remote_date:?}");
+                trace!("Date check. Local: {local_date:?}. Remote: {remote_date:?}");
                 let offset = local_date - remote_date;
                 if offset.abs().num_seconds() < 30 {
-                    println!("Dates match, OK!");
+                    trace!("Dates match, OK!");
                     Some(RemoteImageStatus::Present)
                 } else {
-                    println!("Date mismatch.");
+                    trace!("Date mismatch.");
                     Some(RemoteImageStatus::DateMismatch)
                 }
             } else {
-                println!("Internal error");
+                error!("Internal error");
                 None
             }
         } else {
-            println!("Image not in remote");
+            trace!("Image not in remote");
             Some(RemoteImageStatus::Missing)
         }
     } else {
@@ -296,7 +297,7 @@ pub async fn load_image_info(
     };
     // Check through digests. Required on Docker@Windows
     // TODO refactor and remove
-    println!("Remote digests: {:#?}", remote_images_digests);
+    debug!("Remote digests: {:#?}", remote_images_digests);
     for local_digest in local_images.image_digests {
         // local_digest: repo@sha256:digest
         // remote_digests: sha256:digest
@@ -304,9 +305,9 @@ pub async fn load_image_info(
         let Some(local_digest) = digest_parts.last() else {
             continue;
         };
-        println!("Checking: {local_digest}");
+        debug!("Checking: {local_digest}");
         if remote_images_digests.contains(&local_digest.to_string()) {
-            println!("Digest match!");
+            trace!("Digest match!");
             image_in_remote = Some(RemoteImageStatus::Present);
             break;
         }
@@ -381,7 +382,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
     }
     let upload_window_open_flag_arc = Arc::clone(&data.upload_window_state_flag_arc);
     let Some(image_data) = data.image_data.clone() else {
-        eprintln!("Window opened without selected_image_name");
+        error!("Window opened without selected_image_name");
         ui.close_kind(egui::UiKind::Window);
         return;
     };
@@ -398,12 +399,12 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
     } = image_data;
 
     let Some(image_collection) = image_collection else {
-        eprintln!("Window opened without image_collection");
+        error!("Window opened without image_collection");
         ui.close_kind(egui::UiKind::Window);
         return;
     };
     let Some(image_inspect) = image_inspect else {
-        eprintln!("Window opened without image_inspect");
+        error!("Window opened without image_inspect");
         ui.close_kind(egui::UiKind::Window);
         return;
     };
@@ -426,7 +427,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                     .on_hover_text(format!("Eliminar la imagen {selected_image_name}"))
                     .clicked()
                 {
-                    println!("delete_modal for: {selected_image_name}");
+                    debug!("delete_modal for: {selected_image_name}");
                     // TODO use image_collection, add selector to modal
                     let mut data = block_on(data_arc_2.lock());
                     let WindowData {
@@ -443,11 +444,11 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                 }
                 if ui.button("⬆").on_hover_text("Subir a Registro").clicked() {
                     let image_name = selected_image_name.clone();
-                    println!("Subir {image_name}");
+                    debug!("Push {image_name}");
                     let Ok(selected_repo_info) =
                         container::RepositoryInfo::try_from_repo_tag(image_name.clone())
                     else {
-                        eprintln!("Invalid repo_tag");
+                        error!("Invalid repo_tag: {image_name}");
                         return;
                     };
                     *upload_window_open_flag_arc.lock().unwrap() = Some(selected_repo_info);
@@ -481,7 +482,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data_arc: &mut Arc<AsyncMutex<WindowData>>) {
                                     .on_hover_text("Información de esta imagen")
                                     .clicked()
                                 {
-                                    println!("Change dialog to {image_name}");
+                                    debug!("Change dialog to {image_name}");
                                     let arc = Arc::clone(&data_arc_2);
                                     let image_name = image_name.clone();
                                     Task::new().fire_async(async move {
@@ -731,19 +732,19 @@ impl ModalData {
                         let table_arc = Arc::clone(&self.table_rows);
                         tasks.fire_async(async move {
                             let Ok(docker) = container::Client::new().await else {
-                                return println!("No docker client");
+                                return error!("No docker client");
                             };
 
                             *progress_arc.lock().unwrap() =
                                 match docker.delete_image(image_name, force, false).await {
                                     Ok(mut x) => {
-                                        println!("Delete OK");
+                                        debug!("Delete OK");
                                         let mut table_rows = table_arc.lock().unwrap();
                                         table_rows.append(&mut x);
                                         DeleteProgress::Ok
                                     }
                                     Err(x) => {
-                                        println!("Delete failed: {x:?}");
+                                        error!("Deletion failed: {x:?}");
                                         DeleteProgress::Failed
                                     }
                                 }

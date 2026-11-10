@@ -9,6 +9,7 @@ use eframe::egui;
 use egui::{Id, Modal};
 use egui_extras::{Column, TableBuilder};
 use futures::lock::Mutex as AsyncMutex;
+use log::{debug, error, info, trace};
 use std::sync::{Arc, Mutex};
 
 pub struct ModalData {
@@ -46,7 +47,7 @@ impl ModalData {
                 None => {
                     let Ok(zot_client) = zot::Client::new(&self.config) else {
                         ui.close_kind(egui::UiKind::Window);
-                        return println!("Invalid config");
+                        return error!("Invalid config");
                     };
                     let image_name = self.image.get_image_name();
                     let registry_name = zot_client.get_registry_name();
@@ -137,10 +138,11 @@ impl ModalData {
                         let mut tasks: Task<()> = Task::new();
                         let Ok(zot_client) = zot::Client::new(&self.config) else {
                             ui.close_kind(egui::UiKind::Window);
-                            return println!("Invalid config");
+                            return error!("Invalid config");
                         };
                         let image_name = self.image.get_image_name();
                         let registry_name = zot_client.get_registry_name();
+			// TODO refactor
                         let pull_name = format!("{registry_name}/{image_name}");
                         let creds = zot_client.get_credentials();
                         let mut rename_str = None;
@@ -155,7 +157,7 @@ impl ModalData {
                         tasks.fire_async(async move {
                             let tx_arc = Arc::clone(&tx_arc);
                             let Ok(docker) = container::Client::new().await else {
-                                return println!("No docker client");
+                                return error!("No docker client");
                             };
 
                             *progress_arc.lock().unwrap() = match docker
@@ -163,12 +165,12 @@ impl ModalData {
                                 .await
                             {
                                 Ok(_) => {
-                                    println!("Pull OK");
+                                    info!("Pull OK");
                                     // Main list refresh is triggered in mod.rs
                                     PullProgress::Ok
                                 }
                                 Err(x) => {
-                                    println!("Pull failed: {x:?}");
+                                    info!("Pull failed: {x:?}");
                                     PullProgress::Failed
                                 }
                             }

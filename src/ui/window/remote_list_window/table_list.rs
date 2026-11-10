@@ -12,6 +12,7 @@ use egui::containers::scroll_area::DragScroll;
 use egui::{Id, Modal};
 use egui_extras::{Column, TableBuilder};
 use futures::lock::Mutex as AsyncMutex;
+use log::{debug, error, info, trace};
 use std::sync::Arc;
 
 pub async fn load_list_data(data: Arc<AsyncMutex<WindowData>>) -> Result<(), ()> {
@@ -28,7 +29,7 @@ pub async fn load_list_data(data: Arc<AsyncMutex<WindowData>>) -> Result<(), ()>
         return Err(());
     };
 
-    println!("Loading remote image list");
+    info!("Loading remote image list");
     let list_result = match list_mode {
         super::RemoteImageListMode::All => client.get_image_list().await,
         super::RemoteImageListMode::LastRepoImage => {
@@ -38,7 +39,7 @@ pub async fn load_list_data(data: Arc<AsyncMutex<WindowData>>) -> Result<(), ()>
     let mut remote_image_list = match list_result {
         Ok(x) => x,
         Err(x) => {
-            println!("error: {x:?}");
+            error!("Can't obtain remote image list: {x:?}");
             toasts
                 .lock()
                 .await
@@ -49,7 +50,7 @@ pub async fn load_list_data(data: Arc<AsyncMutex<WindowData>>) -> Result<(), ()>
     };
     remote_image_list.sort_by_key(|x| x.date); // Oldest image first
     remote_image_list.reverse();
-    println!("{remote_image_list:#?}");
+    trace!("{remote_image_list:#?}");
     let mut data_locked = data.lock().await;
     data_locked.remote_image_list = remote_image_list;
     return Ok(());
@@ -168,8 +169,8 @@ fn image_table_row(
                     .on_hover_text("Descargar de Registro")
                     .clicked()
                 {
-                    println!("Pull modal for {image_name}");
-                    //println!("{image:#?}");
+                    debug!("Pull modal for {image_name}");
+                    trace!("{image:#?}");
                     *pull_modal_data = Some(PullModalData::new(image.clone(), config.clone()));
                 }
                 if ui
@@ -177,7 +178,7 @@ fn image_table_row(
                     .on_hover_text(format!("Eliminar la imagen {image_name}"))
                     .clicked()
                 {
-                    println!("Delete modal for: {image_name}");
+                    debug!("Delete modal for: {image_name}");
                     *delete_modal_data = Some(DeleteModalData::new(image_name, config.clone()));
                 }
                 /*if ui
@@ -185,7 +186,7 @@ fn image_table_row(
                     .on_hover_text("Información de la imagen")
                     .clicked()
                 {
-                    println!("Info de {image_name}");
+                    debug!("Inspect {image_name}");
                 }*/
             });
         });
@@ -208,7 +209,7 @@ fn image_table_row(
 }
 
 fn sort_table(options: ImageTableOptions, list: &mut Vec<container::Image>) {
-    println!("Sorting image table: {options:#?}");
+    debug!("Sorting image table: {options:#?}");
     match options.sort_type {
         TableSortType::None => {}
         TableSortType::Date => {
