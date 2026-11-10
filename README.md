@@ -2,9 +2,12 @@
 
 Interfaz gráfica de escritorio para la _GEstión de REgistros de COntenedores_.
 
+[![Current Version](https://img.shields.io/badge/release-v0.1.0-85c20f.svg)](https://github.com/TIDOP-USAL/ambiot-firmware/tags)
+[![MSRV](https://img.shields.io/badge/MSRV-1.95.0-69add7.svg)](https://rustup.rs/)
+
 ---
 
-Herramienta para ayudar a desarrolladores en el manejo de un registro de contenedores privado.
+Herramienta para ayudar a desarrolladores en el manejo de un registro de contenedores privado (zot).
 
 La interfaz muestra una lista de imágenes de contenedor en la máquina local, asociadas a la instalación de Docker o Podman, y también permite listar e interactuar con las imágenes en un registro de contenedores remoto.
 
@@ -20,9 +23,9 @@ Puedes descargar y ejecutar la última versión desde el apartado Releases del r
 
 Está disponible para las siguientes plataformas:
 
-- `recoge_x.exe`. Portable para Windows.
+- `recoge_x.exe`. Portable para Windows (64 bit).
 - `recoge_x_x86_64.AppImage`. Portable para Linux.
-- `recoge_0.1.0_amd64.deb`. Instalador para Debian GNU/Linux, Ubuntu y similares (64 bit).
+- `recoge_x_amd64.deb`. Instalador para Debian GNU/Linux, Ubuntu y similares (64 bit).
 - `recoge_x_intel.dmg`. Instalador para macOS (Intel).
 - `recoge_x_arm.dmg`. Instalador para macOS (Apple silicon).
 
@@ -93,7 +96,7 @@ cargo build --target x86_64-pc-windows-gnu
 
 ### Usar el programa
 
-`recoge` está diseñado para usarse con el Registro de Contenedores del TIDOP (`cr.tidop.es`). Configura tus credenciales usuario en la ventana de configuración (⚙).
+`recoge` está diseñado para usarse con el Registro de Contenedores del TIDOP (`cr.tidop.es`) u otras instancias de [Zot](https://github.com/project-zot/zot). Configura tu registro y credenciales usuario en la ventana de configuración (⚙).
 
 La interfaz de `recoge` sirve para manipular imágenes de contenedor, siempre identificadas por su nombre completo.
 
