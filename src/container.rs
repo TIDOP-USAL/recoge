@@ -1,12 +1,13 @@
-//use std::process::Command;
-//use std::collections::HashMap;
 use crate::error::{ClientError, Error, Result};
+use crate::utils;
 use bollard::models::ImageInspect;
 use bollard::query_parameters::{ListImagesOptionsBuilder, TagImageOptionsBuilder};
 use bollard::{Docker, plugin::ImageSummary};
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Utc};
 use futures_lite::stream::StreamExt;
+use log::{debug, error, trace, warn};
 use serde::{Deserialize, Serialize};
+use std::fmt::Write;
 use std::sync::{Arc, Mutex, mpsc::SyncSender};
 
 // All aliases for one image. All repos, tags, digests.
@@ -23,18 +24,20 @@ pub struct ImageCollection {
 }
 
 // TODO impl get Image from RepositoryInfo. Can't correlate digest
-
 impl ImageCollection {
+    #[must_use]
     pub fn get_id_value(&self) -> String {
         let id = self.image_digests.first().unwrap_or(&self.id);
         id.split("sha256:").last().unwrap_or("").to_string()
     }
 
     // Short version of the same digest
+    #[must_use]
     pub fn get_short_id(&self) -> String {
         self.get_id_value().chars().take(12).collect()
     }
 
+    #[must_use]
     pub fn to_images(&self) -> Vec<Image> {
         let mut images = Vec::new();
         for repo_info in &self.image_aliases {
@@ -69,10 +72,12 @@ pub struct RepositoryInfo {
 }
 
 impl RepositoryInfo {
+    #[must_use]
     pub fn get_image(&self) -> String {
         format!("{}:{}", self.repository, self.tag)
     }
 
+    #[must_use]
     pub fn get_stripped_repository(&self) -> String {
         let mut repo_name = self.repository.clone();
         // Strip domain from repo name
@@ -83,16 +88,16 @@ impl RepositoryInfo {
             && let Some(first) = parts.next()
         {
             // Is domain (crude)
-            if first.contains(".") || first.contains("localhost") || first.contains(":") {
+            if first.contains('.') || first.contains("localhost") || first.contains(':') {
                 let mut remainder = String::new();
                 for part in parts {
-                    remainder += &format!("{part}/");
+                    let _ = write!(remainder, "{part}/");
                 }
                 remainder.pop(); // remove trailing '/'
                 repo_name = remainder;
             }
         }
-        println!("parsed name: {repo_name:?}");
+        trace!("Stripped repo parsed name: {repo_name:?}");
         repo_name
     }
 
@@ -112,7 +117,7 @@ impl RepositoryInfo {
         };
         let mut repository_str = String::new();
         for part in repo_parts {
-            repository_str += &format!("{part}:");
+            let _ = write!(repository_str, "{part}:");
         }
         repository_str.pop(); // remove trailing ':'
 
@@ -168,7 +173,7 @@ impl TryFrom<&ImageInspect> for ImageCollection {
             // TODO fail?
             return Err(Error::Program("no date".to_string()));
         };
-        let image_digests = image.repo_digests.clone().unwrap_or(Vec::new());
+        let image_digests = image.repo_digests.clone().unwrap_or_default();
         Ok(Self {
             image_aliases,
             image_digests,
@@ -181,78 +186,58 @@ impl TryFrom<&ImageInspect> for ImageCollection {
 
 impl Image {
     // Get one of the image's digests, HR, not preferred as internal ID
+    #[must_use]
     pub fn get_id_value(&self) -> String {
         self.id.split("sha256:").last().unwrap_or("").to_string()
     }
 
     // Short version of the same digest
+    #[must_use]
     pub fn get_short_id(&self) -> String {
         self.get_id_value().chars().take(12).collect()
     }
 
     // Repo name only. Human readable
+    #[must_use]
     pub fn get_repo_name(&self) -> String {
         match &self.repository_info {
-            Some(repo_info) => repo_info.repository.to_string(),
+            Some(repo_info) => repo_info.repository.clone(),
             None => format!("<Sin nombre: {}>", self.get_short_id()),
         }
     }
 
+    #[must_use]
     pub fn has_image_name(&self) -> bool {
         self.repository_info.is_some()
     }
 
     // Full image name (repo:tag or id digest)
+    #[must_use]
     pub fn get_image_name(&self) -> String {
         if let Some(repo_info) = &self.repository_info {
             if repo_info.repository != "localhost" {
                 return repo_info.get_image();
-            } else {
-                // "localhost" means untagged image. There might me multiple of these: show/use short_id instead
-                return self.get_short_id();
             }
+            // "localhost" means untagged image. There might me multiple of these: show/use short_id instead
+            return self.get_short_id();
         }
         self.get_id_value()
     }
 
+    #[must_use]
     pub fn get_date_local(&self) -> String {
-        let date: DateTime<Local> = self.date.into();
-        let formatted_date = date.format("%d/%m/%Y %H:%M").to_string();
-        formatted_date
+        utils::get_date_local(&self.date)
     }
 
+    #[must_use]
     pub fn get_relative_date(&self) -> String {
-        let duration = chrono::Utc::now() - self.date;
-        let dur_secs = duration.num_seconds();
-        if dur_secs < 0 {
-            return String::new();
-        }
-        let dur_mins = f64::round(dur_secs as f64 / 60.0) as u64;
-        if dur_mins == 0 {
-            return format!("{dur_secs}s");
-        }
-        if dur_mins < 60 {
-            return format!("{dur_mins}min");
-        }
-        let dur_hours = f64::round(dur_mins as f64 / 60.0) as u64;
-        if dur_hours < 24 {
-            return format!("{dur_hours}h");
-        }
-        let dur_days = f64::round(dur_hours as f64 / 24.0) as u64;
-        if dur_days < 30 {
-            return format!("{dur_days}d");
-        }
-        let dur_months = f64::round(dur_days as f64 / 30.0) as u64;
-        if dur_months < 12 {
-            return format!("{dur_months}M");
-        }
-        let dur_years = f64::round(dur_days as f64 / 365.25) as u64;
-        format!("{dur_years}y")
+        utils::get_relative_date(&self.date)
     }
 
+    #[must_use]
     pub fn get_human_size(&self) -> String {
         if let Some(bytes) = self.size_bytes {
-            humansize::format_size(bytes as u64, humansize::DECIMAL)
+            humansize::format_size(bytes.cast_unsigned(), humansize::DECIMAL)
         } else {
             "Desconocido".to_string()
         }
@@ -279,21 +264,21 @@ pub struct Client {
 
 impl Client {
     pub async fn new() -> Result<Self> {
-        println!("Connecting to Docker...");
+        debug!("Connecting to Docker...");
         #[allow(unused)]
         let mut docker = Docker::connect_with_local_defaults();
 
         #[cfg(not(target_os = "windows"))]
         {
             if docker.is_err() {
-                println!("Connecting to Podman...");
+                debug!("Connecting to Podman...");
                 docker = Docker::connect_with_podman_defaults();
             }
         }
         #[cfg(target_family = "unix")]
         {
             if docker.is_err() {
-                println!("Connecting with UNIX sockets...");
+                debug!("Connecting with UNIX sockets...");
                 docker = Docker::connect_with_socket_defaults();
                 if docker.is_err() {
                     let home_dir = match std::env::home_dir() {
@@ -303,7 +288,7 @@ impl Client {
                         }
                         None => "~".to_string(),
                     };
-                    println!("Connecting with macOS UNIX sockets...");
+                    debug!("Connecting with macOS UNIX sockets...");
                     docker = Docker::connect_with_socket(
                         &format!("{home_dir}/.docker/run/docker.sock"),
                         120,
@@ -315,27 +300,27 @@ impl Client {
         let docker = match docker {
             Ok(x) => x,
             Err(x) => {
-                println!("Can't connect: {x:?}");
+                error!("Can't connect to Docker: {x:?}");
                 return Err(Error::Program(
                     "Can't connect to container services".to_string(),
                 ));
             }
         };
-        println!("Connected!");
-        //println!("{docker:?}");
+        debug!("Connected!");
+        trace!("{docker:?}");
         Ok(Self { client: docker })
     }
 
     // Image list, grouped by same image
     pub async fn image_collection_list(&self) -> Result<Vec<ImageCollection>> {
         let docker = &self.client;
-        println!("Getting image list...");
+        debug!("Getting image list...");
         let options = ListImagesOptionsBuilder::default().all(false).build();
         let images = match docker.list_images(Some(options)).await {
             Ok(images) => images,
             Err(x) => {
                 let err_str = x.to_string();
-                eprintln!("{err_str}");
+                error!("Can't list local images {err_str}");
                 return Err(Error::Program(err_str));
             }
         };
@@ -343,12 +328,12 @@ impl Client {
         let mut list = Vec::new();
         for summary in images {
             let Ok(image_collection) = ImageCollection::try_from(&summary) else {
-                println!("Error: skipping invalid image collection");
+                warn!("Error: skipping invalid image collection");
                 continue;
             };
             list.push(image_collection);
         }
-        println!("{list:#?}");
+        trace!("Local image collections: {list:#?}");
         Ok(list)
     }
 
@@ -362,26 +347,26 @@ impl Client {
                 None => &collection.get_short_id(),
             };
             let size = collection.size_bytes;
-            println!("Size collection {id}: {size:?}");
+            trace!("Size collection {id}: {size:?}");
             images.append(&mut collection.to_images());
         }
-        println!("{images:#?}");
+        trace!("Local images: {images:#?}");
         Ok(images)
     }
 
     pub async fn image_inspect(&self, image: String) -> Result<ImageInspect> {
         let docker = &self.client;
-        println!("Inspecting image!");
+        debug!("Inspecting image!");
         // TODO bug: Docker returns wrong size here?. Correct one on image_list.
         match docker.inspect_image(&image).await {
             Ok(image) => Ok(image.clone()),
             Err(x) => {
                 let err_str = x.to_string();
-                eprintln!("{err_str}");
+                error!("Can't inspect local image: {err_str}");
                 if err_str.contains("code 404") {
                     return Err(ClientError::NotFound(format!("Image {image} not found")).err());
                 }
-                return Err(Error::Program(err_str));
+                Err(Error::Program(err_str))
             }
         }
     }
@@ -396,7 +381,7 @@ impl Client {
             .build();
         if let Err(x) = docker.tag_image(&image, Some(tag_options)).await {
             let err_str = x.to_string();
-            eprintln!("{err_str}");
+            error!("Can't tag local image: {err_str}");
             return Err(Error::Program(err_str));
         }
         Ok(())
@@ -410,43 +395,43 @@ impl Client {
         rename_name: Option<String>,
     ) -> Result<()> {
         let docker = &self.client;
-        println!("Pulling image...");
+        debug!("Pulling image...");
         let options = bollard::query_parameters::CreateImageOptionsBuilder::default()
             .from_image(&image)
             .build();
-        println!("options: {options:#?}");
+        debug!("Using options: {options:#?}");
         let credentials = bollard::auth::DockerCredentials {
-            username: Some(reg_creds.0.to_string()),
-            password: Some(reg_creds.1.to_string()),
+            username: Some(reg_creds.0.clone()),
+            password: Some(reg_creds.1.clone()),
             ..Default::default()
         };
-        println!("using {credentials:#?}");
+        trace!("using {credentials:#?}"); // Sensitive info
         let mut a = docker.create_image(Some(options), None, Some(credentials));
         while let Some(state) = a.next().await {
-            //println!("{state:?}");
+            trace!("Pull state: {state:?}");
             let tx = tx.lock().unwrap();
             match state {
                 Ok(info) => {
                     // TODO send timestamp?
                     match tx.send(info) {
                         Err(x) => {
-                            println!("e: {:#?}", x.0);
+                            error!("Can't send pull state: {:#?}", x.0);
                         }
                         Ok(_x) => (),
                     }
                 }
                 Err(x) => {
-                    println!("Pull error {x:?}");
+                    error!("Pull error {x:?}");
                     // TODO return err?
                 }
             }
         }
-        println!("Pull OK: {image}");
+        debug!("Pull OK: {image}");
         // Pull OK. Retag if required
         if let Some(new_repo_tag) = rename_name {
-            println!("Copying {image} to {new_repo_tag}");
+            debug!("Copying {image} to {new_repo_tag}");
             let r = self.image_add_tag(image, new_repo_tag).await;
-            println!("Rename result: {r:?}");
+            debug!("Rename result: {r:?}");
         }
         Ok(())
     }
@@ -462,7 +447,7 @@ impl Client {
         tx: Arc<Mutex<SyncSender<bollard::config::PushImageInfo>>>,
     ) -> Result<()> {
         let docker = &self.client;
-        println!("Pushing image...");
+        debug!("Pushing image...");
         let local_image_name = local_image.get_image();
         let mut remote_images = remote_images;
         let mut new_local_image_names = Vec::new();
@@ -477,39 +462,39 @@ impl Client {
                     .image_add_tag(local_image_name.clone(), remote_image_name.clone())
                     .await
                 {
-                    println!("Can't retag before pushing: {x:?}");
+                    error!("Can't retag before pushing: {x:?}");
                     return Err(x);
-                };
+                }
             }
-            println!("Pushing {local_image_name} as {remote_image_name}");
+            debug!("Pushing {local_image_name} as {remote_image_name}");
 
             let options = bollard::query_parameters::PushImageOptionsBuilder::default()
                 .tag(&remote_image.tag)
                 .build();
-            println!("options: {options:#?}");
+            debug!("Using options: {options:#?}");
             let credentials = bollard::auth::DockerCredentials {
-                username: Some(reg_creds.0.to_string()),
-                password: Some(reg_creds.1.to_string()),
+                username: Some(reg_creds.0.clone()),
+                password: Some(reg_creds.1.clone()),
                 ..Default::default()
             };
-            println!("using {credentials:#?}");
+            trace!("using {credentials:#?}"); // Sensitive info
             let mut a =
                 docker.push_image(&remote_image.repository, Some(options), Some(credentials));
             while let Some(state) = a.next().await {
-                //println!("{state:?}");
+                trace!("Push state: {state:?}");
                 let tx = tx.lock().unwrap();
                 match state {
                     Ok(info) => {
                         // TODO send timestamp?
                         match tx.send(info) {
                             Err(x) => {
-                                println!("e: {:#?}", x.0);
+                                error!("Can't send push state: {:#?}", x.0);
                             }
                             Ok(_x) => (),
                         }
                     }
                     Err(x) => {
-                        println!("Push error {x:?}");
+                        error!("Push error {x:?}");
                         let error_detail = Some(bollard::config::ErrorDetail {
                             code: None,
                             message: format!("{x:?}").into(),
@@ -520,7 +505,7 @@ impl Client {
                         };
                         match tx.send(error) {
                             Err(x) => {
-                                println!("e: {:#?}", x.0);
+                                error!("Can't send push state: {:#?}", x.0);
                             }
                             Ok(_x) => (),
                         }
@@ -528,7 +513,7 @@ impl Client {
                     }
                 }
             }
-            println!("Push OK: {remote_image_name}");
+            debug!("Push OK: {remote_image_name}");
         }
         // Images were pushed
         if clean_local {
@@ -547,22 +532,22 @@ impl Client {
         noprune: bool, // Do not delete untagged parent images
     ) -> Result<Vec<bollard::config::ImageDeleteResponseItem>> {
         let docker = &self.client;
-        println!("Deleting image");
+        debug!("Deleting image");
         let options = bollard::query_parameters::RemoveImageOptions {
             force,
             noprune,
             ..Default::default()
         };
-        println!("options: {options:#?}");
+        debug!("Using options: {options:#?}");
         let result = match docker.remove_image(&image, Some(options), None).await {
             Ok(x) => x,
             Err(x) => {
                 // TODO error parsing
-                println!("Error while deleting {image}: {x:?}");
+                error!("Error while deleting {image}: {x:?}");
                 return Err(Error::Program(format!("{x:?}")));
             }
         };
-        println!("Delete OK: {result:?}");
+        debug!("Delete OK: {result:?}");
         Ok(result)
     }
 }

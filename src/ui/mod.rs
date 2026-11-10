@@ -1,4 +1,5 @@
 pub mod main_list;
+pub mod widgets;
 pub mod window;
 
 use crate::configuration as config;
@@ -8,19 +9,15 @@ use arc_swap::ArcSwap;
 use config::AppConfig;
 use container::Image;
 use eframe::egui;
-use main_list::TableSortType;
-use window::WindowOptions;
-
 use egui::{Align, Layout, UiBuilder};
 use egui_notify::Toasts;
 use futures::executor::block_on;
 use futures::lock::Mutex as AsyncMutex;
+use log::{debug, error, warn};
 use main_list::ImageTableOptions;
+use main_list::TableSortType;
 use std::sync::{Arc, Mutex};
-use window::config_window;
-use window::image_info_window;
-use window::remote_list_window;
-use window::upload_window;
+use window::{WindowOptions, config_window, image_info_window, remote_list_window, upload_window};
 
 pub fn ui_start() -> eframe::Result {
     let icon = std::include_bytes!("../assets/icon.png");
@@ -38,7 +35,7 @@ pub fn ui_start() -> eframe::Result {
 
     let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([900.0, 450.0])
+            .with_inner_size([910.0, 480.0])
             .with_icon(icon),
         ..Default::default()
     };
@@ -96,6 +93,7 @@ pub struct MyApp {
     image_list_hovered_id: Option<String>,
     tasks: Task<()>,
     upload_window_state: Arc<Mutex<upload_window::WindowState>>,
+    upload_window_open_flag: Arc<Mutex<Option<container::RepositoryInfo>>>,
     image_info_window_state: Arc<AsyncMutex<image_info_window::WindowState>>,
     image_info_window_is_loading: Arc<ArcSwap<bool>>,
     remote_list_window_state: Arc<AsyncMutex<remote_list_window::WindowState>>,
@@ -121,7 +119,7 @@ impl MyApp {
             let mut global_data = global_data_arc.lock().await;
             global_data.config = config;
             global_data.config_state = LoadState::Loaded;
-            println!("Config loaded!");
+            debug!("Config loaded!");
             if global_data.config.is_missing_credentials() {
                 let mut toasts = toasts_arc.lock().await;
                 toasts
@@ -129,7 +127,7 @@ impl MyApp {
                         "No se ha configurado el usuario del Registro. Entra en la configuración ⚙",
                     )
                     .duration(std::time::Duration::from_secs(20));
-                println!("Config is missing credentials");
+                warn!("Config is missing credentials");
             }
         });
     }
@@ -174,16 +172,22 @@ impl MyApp {
         let image_info_window_state_arc = Arc::clone(&self.image_info_window_state);
         let main_list_reload_flag_arc = Arc::clone(&self.image_list_should_reload);
         let window_is_loading = Arc::clone(&self.image_info_window_is_loading);
+        let upload_window_open_flag_arc = Arc::clone(&self.upload_window_open_flag);
         let toasts_arc = Arc::clone(&self.toasts);
 
+        #[allow(clippy::cast_precision_loss)]
         self.tasks.fire_async(async move {
             let mut image_info_window_state = image_info_window_state_arc.lock().await;
             window_is_loading.store(Arc::new(true.to_owned()));
             let arc = Arc::clone(&image_info_window_state.data);
             let arc_2 = Arc::clone(&image_info_window_state.data);
             let mut data = block_on(arc.lock());
-            data.init(config, toasts_arc, main_list_reload_flag_arc)
-                .await;
+            data.init(
+                config,
+                toasts_arc,
+                main_list_reload_flag_arc,
+                upload_window_open_flag_arc,
+            );
             drop(data);
             let input_data = image_info_window::ImageInspectInput {
                 id: image_info_window::ImageInspectType::LocalNamed(image.get_image_name()),
@@ -193,6 +197,9 @@ impl MyApp {
             let _r = image_info_window::load_image_info(arc_2, input_data).await;
             // TODO if ok
             window_is_loading.store(Arc::new(false.to_owned()));
+            let mut width = 180 + image.get_image_name().len() * 18;
+            width = std::cmp::max(width, 400);
+            image_info_window_state.options.default_width = Some(width as f32);
             image_info_window_state.open();
             ctx.request_repaint();
         });
@@ -212,11 +219,11 @@ impl MyApp {
                 .init(&config, main_list_reload_flag_arc, toasts_arc)
                 .await;
             window_is_loading.store(Arc::new(false.to_owned()));
-            if let Ok(_) = load_result {
+            if load_result.is_ok() {
                 remote_list_window_state.open();
                 ctx.request_repaint();
             } else {
-                println!("Returned an error");
+                error!("Remote list load failed: {load_result:?}");
             }
         });
     }
@@ -245,6 +252,7 @@ impl Default for MyApp {
             image_list_hovered_id: None,
             tasks: Task::new(),
             upload_window_state: Arc::new(Mutex::new(upload_window::WindowState::default())),
+            upload_window_open_flag: Arc::new(Mutex::new(None)),
             config_window_state: Arc::new(Mutex::new(config_window::WindowState::default())),
             remote_list_window_state: Arc::new(AsyncMutex::new(
                 remote_list_window::WindowState::default(),
@@ -273,6 +281,7 @@ impl eframe::App for MyApp {
         drop(toasts);
 
         let upload_window_state_arc = Arc::clone(&self.upload_window_state);
+        //	let upload_window_state_arc2 = Arc::clone(&self.upload_window_state);
         let upload_window_state = &mut *upload_window_state_arc.lock().unwrap();
         WindowOptions::show(
             &mut upload_window_state.options,
@@ -389,13 +398,22 @@ impl eframe::App for MyApp {
                     ui.label("Lista no cargada");
                 }
             });
-            let image_list_should_reload = self.image_list_should_reload.lock().unwrap().clone();
+            let image_list_should_reload = *self.image_list_should_reload.lock().unwrap();
             if image_list_should_reload {
-                println!("Some window flagged the main list to be updated");
+                debug!("Some window flagged the main list to be updated");
                 let mut image_list_should_reload = self.image_list_should_reload.lock().unwrap();
                 *image_list_should_reload = false;
                 drop(image_list_should_reload);
                 *self.image_list_load_state.lock().unwrap() = LoadState::NeedsReload;
+            }
+
+            let upload_window_open_flag = self.upload_window_open_flag.lock().unwrap().clone();
+            if let Some(repo) = upload_window_open_flag {
+                debug!("Open upload window for {repo:?}");
+                let mut upload_window_open_flag = self.upload_window_open_flag.lock().unwrap();
+                *upload_window_open_flag = None;
+                drop(upload_window_open_flag);
+                upload_window_state.open(global_data.config.clone(), repo);
             }
 
             ui.add_space(4.0);
@@ -413,7 +431,7 @@ impl eframe::App for MyApp {
                     } else {
                         self.image_table_options.search_field = None;
                     }
-                };
+                }
                 if self.image_table_options.search_field.is_some() {
                     let filter = ui
                         .text_edit_singleline(
@@ -426,6 +444,13 @@ impl eframe::App for MyApp {
                     if filter.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                         self.image_table_options.search_field = None;
                     }
+                    filter.context_menu(|ui| {
+                        widgets::textedit_context_menu(
+                            ui,
+                            self.image_table_options.search_field.as_mut().unwrap(),
+                        );
+                        filter.request_focus();
+                    });
                 }
             });
             ui.add_space(6.0);
@@ -440,7 +465,7 @@ impl eframe::App for MyApp {
                 _ => {}
             }
             drop(global_data);
-            main_list::image_list_table(&mut table_ui, self, upload_window_state);
+            main_list::image_list_table(&mut table_ui, self);
             if !table_ui.response().contains_pointer() && self.image_list_hovered_id.is_some() {
                 self.image_list_hovered_id = None;
             }

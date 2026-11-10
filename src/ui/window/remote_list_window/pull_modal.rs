@@ -9,6 +9,7 @@ use eframe::egui;
 use egui::{Id, Modal};
 use egui_extras::{Column, TableBuilder};
 use futures::lock::Mutex as AsyncMutex;
+use log::{debug, error, info, trace};
 use std::sync::{Arc, Mutex};
 
 pub struct ModalData {
@@ -23,11 +24,12 @@ pub struct ModalData {
 }
 
 impl ModalData {
+    #[must_use]
     pub fn new(image: container::Image, config: AppConfig) -> Self {
         let (tx, rx) = std::sync::mpsc::sync_channel(1000);
         Self {
-            image: image.clone(),
-            config: config.clone(),
+            image,
+            config,
             full_image_name: None,
             save_without_prefix: false,
             pull_progress_rx: rx,
@@ -41,19 +43,17 @@ impl ModalData {
 impl ModalData {
     pub fn modal(&mut self, ui: &mut egui::Ui) -> egui::ModalResponse<()> {
         Modal::new(Id::new("Pull modal")).show(ui.ctx(), |ui| {
-            let pull_name = match self.full_image_name.clone() {
-                Some(x) => x,
-                None => {
-                    let Ok(zot_client) = zot::Client::new(&self.config) else {
-                        ui.close_kind(egui::UiKind::Window);
-                        return println!("Invalid config");
-                    };
-                    let image_name = self.image.get_image_name();
-                    let registry_name = zot_client.get_registry_name();
-                    let pull_name = format!("{registry_name}/{image_name}");
-                    self.full_image_name = Some(pull_name.clone());
-                    pull_name
-                }
+            let pull_name = if let Some(x) = self.full_image_name.clone() {
+		x } else {
+                let Ok(zot_client) = zot::Client::new(&self.config) else {
+                    ui.close_kind(egui::UiKind::Window);
+                    return error!("Invalid config");
+                };
+                let image_name = self.image.get_image_name();
+                let registry_name = zot_client.get_registry_name();
+                let pull_name = format!("{registry_name}/{image_name}");
+                self.full_image_name = Some(pull_name.clone());
+                pull_name
             };
             ui.set_width(400.0);
             ui.heading("Descargar imagen (Pull)");
@@ -69,21 +69,21 @@ impl ModalData {
                     ui.end_row();
 
                     let image_name = self.image.get_image_name();
-                    ui.label("Copia adicional:").on_hover_text(format!(
-                        "La imagen se descargará también sin el dominio del Registro"
-                    ));
+                    ui.label("Copia adicional:").on_hover_text("La imagen se descargará también sin el dominio del Registro".to_string());
                     ui.horizontal(|ui| {
-                        if ui
-                            .checkbox(&mut self.save_without_prefix, "Copiar como")
+                        let copy = egui::Checkbox::new(&mut self.save_without_prefix, "Copiar como");
+			if ui.add_enabled(*self.pull_progress.lock().unwrap() != PullProgress::InProgress, copy)
                             .changed()
-                            && *self.pull_progress.lock().unwrap() != PullProgress::InProgress
                         {
                             *self.pull_progress.lock().unwrap() = PullProgress::NotStarted;
-                        };
+                        }
                         ui.code(image_name);
                     });
 		    ui.end_row();
 
+		    #[allow(clippy::cast_precision_loss)]
+		    #[allow(clippy::cast_possible_truncation)]
+		    #[allow(clippy::cast_sign_loss)]
 		    if let Some(size) = self.image.size_bytes {
 			let size = size as f32;
 			ui.label("Tamaño estimado:");
@@ -137,10 +137,11 @@ impl ModalData {
                         let mut tasks: Task<()> = Task::new();
                         let Ok(zot_client) = zot::Client::new(&self.config) else {
                             ui.close_kind(egui::UiKind::Window);
-                            return println!("Invalid config");
+                            return error!("Invalid config");
                         };
                         let image_name = self.image.get_image_name();
                         let registry_name = zot_client.get_registry_name();
+			// TODO refactor
                         let pull_name = format!("{registry_name}/{image_name}");
                         let creds = zot_client.get_credentials();
                         let mut rename_str = None;
@@ -155,20 +156,20 @@ impl ModalData {
                         tasks.fire_async(async move {
                             let tx_arc = Arc::clone(&tx_arc);
                             let Ok(docker) = container::Client::new().await else {
-                                return println!("No docker client");
+                                return error!("No docker client");
                             };
 
                             *progress_arc.lock().unwrap() = match docker
                                 .pull_image(pull_name, creds, tx_arc, rename_str)
                                 .await
                             {
-                                Ok(_) => {
-                                    println!("Pull OK");
-                                    // TODO trigger main list refresh?
+                                Ok(()) => {
+                                    info!("Pull OK");
+                                    // Main list refresh is triggered in mod.rs
                                     PullProgress::Ok
                                 }
                                 Err(x) => {
-                                    println!("Pull failed: {x:?}");
+                                    info!("Pull failed: {x:?}");
                                     PullProgress::Failed
                                 }
                             }
@@ -186,7 +187,8 @@ impl ModalData {
     fn progress_table(&self, ui: &mut egui::Ui) -> egui::scroll_area::ScrollAreaOutput<()> {
         let available_height = 50.0;
         let row_height = 18.0;
-        let table = TableBuilder::new(ui)
+
+        TableBuilder::new(ui)
             .striped(true)
             .resizable(false)
             .auto_shrink(false)
@@ -215,18 +217,15 @@ impl ModalData {
                     };
                     let status = msg.status.clone().unwrap_or(String::new());
                     let mut progress_str = String::new();
-                    match &msg.progress_detail {
-                        Some(detail) => {
-                            if let Some(total) = detail.total
-                                && let Some(current) = detail.current
-                                && total != 0
-                            {
-                                let progress = (current as f64 / total as f64) * 100.0;
-                                progress_str = format!("({progress:.2}%)");
-                            }
-                        }
-                        None => {}
-                    };
+                    if let Some(detail) = &msg.progress_detail
+                        && let Some(total) = detail.total
+                        && let Some(current) = detail.current
+                        && total != 0
+                    {
+                        #[allow(clippy::cast_precision_loss)]
+                        let progress = (current as f64 / total as f64) * 100.0;
+                        progress_str = format!("({progress:.2}%)");
+                    }
                     body.row(row_height, |mut row| {
                         row.col(|ui| {
                             ui.label(id);
@@ -236,7 +235,6 @@ impl ModalData {
                         });
                     });
                 }
-            });
-        table
+            })
     }
 }

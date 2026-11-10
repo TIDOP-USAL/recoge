@@ -48,15 +48,15 @@ impl ClientError {
 }
 
 impl Error {
+    #[must_use]
     pub fn is_not_found(&self) -> bool {
         match self {
-            Error::Program(_) => false,
-            Error::Remote(_) => false,
+            Error::Program(_) | Error::Remote(_) => false,
             Error::Client(client_error) => match client_error {
-                ClientError::Invalid(_) => false,
-                ClientError::Conflict(_) => false,
+                ClientError::Invalid(_)
+                | ClientError::Conflict(_)
+                | ClientError::Unauthorized(_) => false,
                 ClientError::NotFound(_) => true,
-                ClientError::Unauthorized(_) => false,
             },
         }
     }

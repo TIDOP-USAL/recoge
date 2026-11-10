@@ -2,7 +2,9 @@ use super::{
     ImageTableOptions, TableSortType, WindowData, delete_modal::ModalData as DeleteModalData,
     pull_modal::ModalData as PullModalData,
 };
-use super::{WindowOptions, WindowSize};
+use super::{
+    ListStatus, NestedRepoListItem, RepositoriesDisplayMode, WindowOptions, WindowSize, tag_list,
+};
 use crate::configuration::AppConfig;
 use crate::container;
 use crate::tasks::Task;
@@ -12,35 +14,69 @@ use egui::containers::scroll_area::DragScroll;
 use egui::{Id, Modal};
 use egui_extras::{Column, TableBuilder};
 use futures::lock::Mutex as AsyncMutex;
+use log::{debug, error, info, trace};
 use std::sync::Arc;
 
-pub async fn load_repo_list(data: Arc<AsyncMutex<WindowData>>) -> Result<Vec<String>, ()> {
+pub async fn reload_repo_list(data: Arc<AsyncMutex<WindowData>>) -> Result<Vec<String>, ()> {
     let data_locked = data.lock().await;
     let toasts = Arc::clone(&data_locked.toasts_arc);
     let config = data_locked.app_config.clone();
     drop(data_locked);
-    let remote_repository_list = get_repo_list(&config, toasts).await?;
+    let repos = get_repo_list(&config, toasts).await?;
     let mut data_locked = data.lock().await;
-    data_locked.remote_repository_list = remote_repository_list.clone();
-    Ok(remote_repository_list)
+    update_new_repo_list(&repos, &mut data_locked);
+    drop(data_locked);
+    Ok(repos)
+}
+
+pub fn update_new_repo_list(remote_repository_list: &[String], output: &mut WindowData) {
+    // Unnested list
+    output.remote_repository_list = remote_repository_list.to_vec();
+
+    // Nested list
+    output.remote_repository_nested_list.clear();
+    let mut filled_directories = Vec::new();
+    for repo in remote_repository_list {
+        // Follow A-Z order
+        let parts: Vec<&str> = repo.split('/').collect();
+        if repo.contains('/')
+            && let Some(dir) = parts.first()
+        {
+            if filled_directories.contains(dir) {
+                continue;
+            }
+            let matching_full_repos: Vec<String> = remote_repository_list
+                .iter()
+                .filter(|x| x.starts_with(&format!("{dir}/")))
+                .map(|x| x[(dir.len() + 1..)].to_string())
+                .collect();
+            let dir_item =
+                super::NestedRepoListItem::Directory((dir.to_string(), matching_full_repos));
+            output.remote_repository_nested_list.push(dir_item);
+            filled_directories.push(dir);
+        } else {
+            let repo_item = super::NestedRepoListItem::Repo(repo.clone());
+            output.remote_repository_nested_list.push(repo_item);
+        }
+    }
 }
 
 pub async fn get_repo_list(
     config: &AppConfig,
     toasts: Arc<AsyncMutex<egui_notify::Toasts>>,
 ) -> Result<Vec<String>, ()> {
-    let Ok(mut client) = zot::Client::new(&config) else {
+    let Ok(mut client) = zot::Client::new(config) else {
         let mut toasts = toasts.lock().await;
         toasts
             .error("Error de conexión. Comprueba las credenciales del Registro.")
             .duration(std::time::Duration::from_secs(3));
         return Err(());
     };
-    println!("Loading remote repository list");
+    info!("Loading remote repository list");
     let mut remote_repository_list = match client.get_repository_list().await {
         Ok(x) => x,
         Err(x) => {
-            println!("error: {x:?}");
+            error!("Can't load remote repositories: {x:?}");
             toasts
                 .lock()
                 .await
@@ -49,7 +85,7 @@ pub async fn get_repo_list(
             return Err(());
         }
     };
-    println!("{remote_repository_list:#?}");
+    trace!("{remote_repository_list:#?}");
     remote_repository_list.sort();
     Ok(remote_repository_list)
 }
@@ -71,11 +107,11 @@ pub async fn load_tag_list(
             .duration(std::time::Duration::from_secs(3));
         return Err(());
     };
-    println!("Loading remote tag list for {repository}");
+    info!("Loading remote tag list for {repository}");
     let mut remote_image_list = match client.get_repo_images(repository).await {
         Ok(x) => x,
         Err(x) => {
-            println!("error: {x:?}");
+            error!("Can't load remote tags: {x:?}");
             toasts
                 .lock()
                 .await
@@ -86,25 +122,237 @@ pub async fn load_tag_list(
     };
     remote_image_list.sort_by_key(|x| x.date); // Oldest image first
     remote_image_list.reverse();
-    println!("{remote_image_list:#?}");
+    trace!("{remote_image_list:#?}");
     let mut data_locked = data.lock().await;
     data_locked.remote_tag_list = remote_image_list;
     Ok(())
 }
 
+// UI functions
+
+fn repo_ui_selection_item(
+    ui: &mut egui::Ui,
+    selected_repository: &mut Option<String>,
+    remote_tag_list_status: &mut ListStatus,
+    display_name: String,
+    repo: String,
+) {
+    if ui
+        .selectable_value(
+            selected_repository,
+            Some(repo.clone()), // Full repo
+            display_name,       // Can be a partial name
+        )
+        .on_hover_text(format!("Seleccionar el repositorio {repo}"))
+        .clicked()
+    {
+        debug!("New selected repo: {selected_repository:?}");
+        *remote_tag_list_status = ListStatus::NeedsReload;
+    }
+}
+
+pub fn ui(
+    ui: &mut egui::Ui,
+    repositories_display_mode: &mut RepositoriesDisplayMode,
+    app_config: &AppConfig,
+    remote_repository_list_status: &mut ListStatus,
+    remote_repository_list: &mut [String],
+    remote_repository_nested_list: &mut Vec<NestedRepoListItem>,
+    selected_repository: &mut Option<String>,
+    remote_tag_list_status: &mut ListStatus,
+    remote_tag_list: &mut [container::Image],
+    image_table_options: &mut ImageTableOptions,
+    pull_modal_data: &mut Option<PullModalData>,
+    delete_modal_data: &mut Option<DeleteModalData>,
+) {
+    let mut search_focus = false;
+    // Repository panel
+    egui::Panel::left("left_panel")
+        .resizable(true)
+        .min_size(150.0)
+        .default_size(230.0)
+        .max_size(400.0)
+        .show(ui, |ui| {
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.heading("Repositorios");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
+                            if ui
+                                .button("⟲")
+                                .on_hover_text("Recargar lista de repositorios remotos")
+                                .clicked()
+                            {
+                                *remote_repository_list_status = ListStatus::NeedsReload;
+                                *remote_tag_list_status = ListStatus::NeedsReload;
+                            }
+                            let btn = ui.button("☰").on_hover_text(
+                                if *repositories_display_mode == RepositoriesDisplayMode::Nested {
+                                    "Mostrar lista completa"
+                                } else {
+                                    "Mostrar lista anidada"
+                                },
+                            );
+                            if *repositories_display_mode == RepositoriesDisplayMode::Unnested {
+                                btn.clone().highlight();
+                            }
+                            if btn.clicked() {
+                                //*remote_image_list_status = ListStatus::NeedsReload;
+                                *repositories_display_mode = match repositories_display_mode {
+                                    RepositoriesDisplayMode::Nested => {
+                                        RepositoriesDisplayMode::Unnested
+                                    }
+                                    RepositoriesDisplayMode::Unnested => {
+                                        RepositoriesDisplayMode::Nested
+                                    }
+                                }
+                            }
+                            let search_btn = ui.button("🔍").on_hover_text("Buscar por nombre");
+                            if image_table_options.repo_search_field.is_some() {
+                                *repositories_display_mode = RepositoriesDisplayMode::Unnested;
+                                search_btn.clone().highlight();
+                            }
+                            if search_btn.clicked() {
+                                if image_table_options.repo_search_field.is_none() {
+                                    image_table_options.repo_search_field = Some(String::new());
+                                    search_focus = true;
+                                } else {
+                                    image_table_options.repo_search_field = None;
+                                }
+                            }
+                        });
+                    });
+                    ui.add_space(3.0);
+                });
+
+                // Search bar
+                if image_table_options.repo_search_field.is_some() {
+                    let filter = ui
+                        .text_edit_singleline(
+                            image_table_options.repo_search_field.as_mut().unwrap(),
+                        )
+                        .on_hover_text("Nombre de repositorio para filtrar");
+                    if search_focus {
+                        filter.request_focus();
+                    }
+                    if filter.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        image_table_options.repo_search_field = None;
+                    }
+                    filter.context_menu(|ui| {
+                        crate::ui::widgets::textedit_context_menu(
+                            ui,
+                            image_table_options.repo_search_field.as_mut().unwrap(),
+                        );
+                        filter.request_focus();
+                    });
+                }
+                // Repo list
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    if *remote_repository_list_status == ListStatus::Loading {
+                        ui.set_cursor_icon(egui::CursorIcon::Wait);
+                    }
+                    match repositories_display_mode {
+                        RepositoriesDisplayMode::Nested => {
+                            for repo_item in remote_repository_nested_list {
+                                match repo_item {
+                                    NestedRepoListItem::Repo(repo) => {
+                                        repo_ui_selection_item(
+                                            ui,
+                                            selected_repository,
+                                            remote_tag_list_status,
+                                            repo.clone(),
+                                            repo.clone(),
+                                        );
+                                    }
+                                    NestedRepoListItem::Directory(dir_item) => {
+                                        egui::CollapsingHeader::new(dir_item.0.clone())
+                                            .id_salt(dir_item.clone())
+                                            .show(ui, |ui| {
+                                                for repo in dir_item.1.clone() {
+                                                    let full_repo_name =
+                                                        format!("{}/{repo}", dir_item.0);
+                                                    repo_ui_selection_item(
+                                                        ui,
+                                                        selected_repository,
+                                                        remote_tag_list_status,
+                                                        repo.clone(),
+                                                        full_repo_name,
+                                                    );
+                                                }
+                                            });
+                                    }
+                                }
+                            }
+                        }
+                        RepositoriesDisplayMode::Unnested => {
+                            for repo in remote_repository_list {
+                                if let Some(search_filter) =
+                                    image_table_options.repo_search_field.clone()
+                                    && !repo.contains(&search_filter)
+                                {
+                                    continue;
+                                }
+                                repo_ui_selection_item(
+                                    ui,
+                                    selected_repository,
+                                    remote_tag_list_status,
+                                    repo.clone(),
+                                    repo.clone(),
+                                );
+                            }
+                        }
+                    }
+                    ui.allocate_space(ui.available_size());
+                });
+            });
+        });
+
+    egui::CentralPanel::default().show(ui, |ui| {
+        if *remote_tag_list_status == ListStatus::Loading {
+            ui.set_cursor_icon(egui::CursorIcon::Wait);
+        }
+
+        if let Some(repo) = selected_repository {
+            ui.horizontal(|ui| {
+                //ui.label("Repositorio:");
+                ui.label("🗀");
+                ui.code(repo).on_hover_text("El repositorio seleccionado");
+                if *remote_tag_list_status == ListStatus::Loading {
+                    ui.spinner();
+                }
+            });
+        }
+        // Tag table
+        ui.group(|ui| {
+            if *remote_tag_list_status == ListStatus::Loading {
+                ui.disable();
+            }
+            tag_list::table_ui(
+                ui,
+                image_table_options,
+                remote_tag_list,
+                app_config,
+                pull_modal_data,
+                delete_modal_data,
+            );
+        });
+    });
+}
+
 pub fn table_ui(
     ui: &mut egui::Ui,
     image_table_options: &mut ImageTableOptions,
-    images: &mut Vec<container::Image>,
+    images: &mut [container::Image],
     config: &AppConfig,
     pull_modal_data: &mut Option<PullModalData>,
     delete_modal_data: &mut Option<DeleteModalData>,
 ) -> egui::scroll_area::ScrollAreaOutput<()> {
     let available_height = ui.available_height();
-    let date_rev = image_table_options.ui_date_rev.clone();
-    let name_rev = image_table_options.ui_name_rev.clone();
+    let date_rev = image_table_options.ui_date_rev;
+    let name_rev = image_table_options.ui_name_rev;
     let sort_type = image_table_options.sort_type.clone();
-    let table = TableBuilder::new(ui)
+
+    TableBuilder::new(ui)
         .striped(true)
         .resizable(true)
         .auto_shrink(false)
@@ -135,7 +383,7 @@ pub fn table_ui(
                     if btn.clicked() {
                         image_table_options.ui_name_rev ^= true;
                         image_table_options.sort_type = TableSortType::Name;
-                        sort_table(image_table_options.clone(), images);
+                        sort_table(image_table_options, images);
                     }
                 });
             });
@@ -149,7 +397,7 @@ pub fn table_ui(
             });
             header.col(|ui| {
                 ui.horizontal(|ui| {
-                    ui.strong("Fecha de subida");
+                    ui.strong("Fecha de creación");
                     let btn =
                         ui.button(if date_rev { "⬇" } else { "⬆" })
                             .on_hover_text(if date_rev {
@@ -163,23 +411,16 @@ pub fn table_ui(
                     if btn.clicked() {
                         image_table_options.ui_date_rev ^= true;
                         image_table_options.sort_type = TableSortType::Date;
-                        sort_table(image_table_options.clone(), images);
+                        sort_table(image_table_options, images);
                     }
                 });
             });
         })
         .body(|mut body| {
             for image in images.iter() {
-                image_table_row(
-                    image,
-                    &mut body,
-                    &config,
-                    pull_modal_data,
-                    delete_modal_data,
-                );
+                image_table_row(image, &mut body, config, pull_modal_data, delete_modal_data);
             }
-        });
-    table
+        })
 }
 
 fn image_table_row(
@@ -206,8 +447,8 @@ fn image_table_row(
                     .on_hover_text("Descargar de Registro")
                     .clicked()
                 {
-                    println!("Pull modal for {image_name}");
-                    //println!("{image:#?}");
+                    debug!("Pull modal for {image_name}");
+                    trace!("{image:#?}");
                     *pull_modal_data = Some(PullModalData::new(image.clone(), config.clone()));
                 }
                 if ui
@@ -215,15 +456,15 @@ fn image_table_row(
                     .on_hover_text(format!("Eliminar la imagen {image_name}"))
                     .clicked()
                 {
-                    println!("Delete modal for: {image_name}");
-                    *delete_modal_data = Some(DeleteModalData::new(image_name, config.clone()));
+                    debug!("Delete modal for: {image_name}");
+                    *delete_modal_data = Some(DeleteModalData::new(&image_name, config.clone()));
                 }
                 /*if ui
                     .button("ℹ")
                     .on_hover_text("Información de la imagen")
                     .clicked()
                 {
-                    println!("Info de {image_name}");
+                    debug!("Inspect {image_name}");
                 }*/
             });
         });
@@ -245,8 +486,8 @@ fn image_table_row(
     });
 }
 
-fn sort_table(options: ImageTableOptions, list: &mut Vec<container::Image>) {
-    println!("Sorting image table: {options:#?}");
+fn sort_table(options: &ImageTableOptions, list: &mut [container::Image]) {
+    debug!("Sorting image table: {options:#?}");
     match options.sort_type {
         TableSortType::None => {}
         TableSortType::Date => {

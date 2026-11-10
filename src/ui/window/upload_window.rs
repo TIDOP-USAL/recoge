@@ -8,6 +8,7 @@ use eframe::egui;
 use egui::Id;
 use egui::widgets::TextEdit;
 use egui_extras::{Column, TableBuilder};
+use log::{debug, error, info, trace};
 use std::sync::{Arc, Mutex};
 
 pub struct WindowState {
@@ -17,6 +18,7 @@ pub struct WindowState {
 }
 
 impl WindowState {
+    #[must_use]
     pub fn default() -> Self {
         Self {
             options: window_options(),
@@ -38,6 +40,7 @@ impl WindowState {
     }
 }
 
+#[must_use]
 pub fn window_options() -> WindowOptions {
     WindowOptions {
         id: Id::new("upload_window"),
@@ -65,6 +68,7 @@ pub struct ImageInfo {
 }
 
 impl ImageInfo {
+    #[must_use]
     pub fn get_new_name(&self) -> String {
         let new_tag = if self.new_tag.is_empty() {
             "latest"
@@ -76,6 +80,7 @@ impl ImageInfo {
             self.remote_repo_prefix, self.new_repository_name, new_tag
         )
     }
+    #[must_use]
     pub fn get_new_remote_repo_info(&self) -> container::RepositoryInfo {
         container::RepositoryInfo {
             repository: format!(
@@ -130,7 +135,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
     } = data;
 
     let Some(selected_image_info) = selected_image_info else {
-        eprintln!("Window opened without selected_image_info");
+        error!("Window opened without selected_image_info");
         ui.close_kind(egui::UiKind::Window);
         return;
     };
@@ -151,7 +156,8 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
         });
     }
     let Some(edit_info) = edit_info else {
-        eprintln!("Fatal");
+        error!("Fatal: no edit_info");
+        // TODO panic?
         ui.close_kind(egui::UiKind::Window);
         return;
     };
@@ -165,12 +171,14 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
         });
     }
     let Some(push_info) = push_info else {
-        eprintln!("Fatal");
+        error!("Fatal: no push_info");
+        // TODO panic?
         ui.close_kind(egui::UiKind::Window);
         return;
     };
 
     let local_image_name = edit_info.selected_name.clone();
+    let can_edit = *push_info.progress.lock().unwrap() != PushProgress::InProgress;
 
     ui.set_width(500.0);
     ui.add_space(10.0);
@@ -188,29 +196,26 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             ui.label("Nuevo repositorio:");
             ui.horizontal(|ui| {
                 ui.label(format!("{}/", edit_info.remote_repo_prefix));
-                let repo = TextEdit::singleline(&mut edit_info.new_repository_name)
-                    .desired_width(200.0)
-                    .show(ui);
+                let repo =
+                    TextEdit::singleline(&mut edit_info.new_repository_name).desired_width(200.0);
+                let repo = ui.add_enabled(can_edit, repo);
                 ui.label(":");
-                let tag = TextEdit::singleline(&mut edit_info.new_tag)
-                    .hint_text("latest")
-                    .show(ui);
-                if (repo.response.changed() || tag.response.changed())
-                    && *push_info.progress.lock().unwrap() != PushProgress::InProgress
-                {
+                let tag = TextEdit::singleline(&mut edit_info.new_tag).hint_text("latest");
+                let tag = ui.add_enabled(can_edit, tag);
+                if (repo.changed() || tag.changed()) {
                     *push_info.progress.lock().unwrap() = PushProgress::NotStarted;
                 }
 
                 let hover_pos = ui.pointer_hover_pos();
                 if let Some(hover_pos) = hover_pos {
                     // TODO time
-                    if repo.response.rect.contains(hover_pos) {
-                        egui::Tooltip::for_widget(&repo.response).show(|ui| {
+                    if repo.rect.contains(hover_pos) {
+                        egui::Tooltip::for_widget(&repo).show(|ui| {
                             ui.label("Nombre del repositorio para la imagen");
                         });
                     }
-                    if tag.response.rect.contains(hover_pos) {
-                        egui::Tooltip::for_widget(&tag.response).show(|ui| {
+                    if tag.rect.contains(hover_pos) {
+                        egui::Tooltip::for_widget(&tag).show(|ui| {
                             ui.label("Versión de la imagen (tag)");
                         });
                     }
@@ -219,23 +224,29 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             });
             ui.end_row();
             ui.label("Es la última versión:");
-            ui.checkbox(
+            let latest = egui::Checkbox::new(
                 &mut edit_info.ui_push_as_latest,
                 "Subir también como latest",
-            )
-            .on_hover_text("Se subirá una copia adicional de la imagen con el tag \"latest\"");
+            );
+            let latest = ui
+                .add_enabled(can_edit, latest)
+                .on_hover_text("Se subirá una copia adicional de la imagen con el tag \"latest\"");
             ui.end_row();
             ui.label("Modo limpio:");
-            ui.checkbox(
+            let clean = egui::Checkbox::new(
                 &mut edit_info.ui_clean_local,
                 "No crear nuevos nombres en local",
-            )
-            .on_hover_text(
-                r#"No dejar nuevos nombres en local asociados al registro tras la subida.
+            );
+            let clean = ui.add_enabled(can_edit, clean).on_hover_text(
+                r"No dejar nuevos nombres en local asociados al registro tras la subida.
 Durante la subida de imágenes, se crearán alias locales con el nombre del registro.
-Este modo elimina estas imágenes creadas para no ensuciar la lista local de imágenes."#,
+Este modo elimina estas imágenes creadas para no ensuciar la lista local de imágenes.",
             );
             ui.end_row();
+            if (latest.changed() || clean.changed()) {
+                *push_info.progress.lock().unwrap() = PushProgress::NotStarted;
+            }
+
             ui.label("Se subirá como:");
             ui.vertical(|ui| {
                 let new_name = edit_info.get_new_name();
@@ -296,9 +307,9 @@ Este modo elimina estas imágenes creadas para no ensuciar la lista local de im�
             {
                 push_info.table_rows.clear();
                 let mut tasks: Task<()> = Task::new();
-                let Ok(zot_client) = zot::Client::new(&config) else {
+                let Ok(zot_client) = zot::Client::new(config) else {
                     ui.close_kind(egui::UiKind::Window);
-                    return println!("Invalid config");
+                    return error!("Invalid config");
                 };
                 let local_image_info = selected_image_info.clone();
                 let remote_image_info = edit_info.get_new_remote_repo_info();
@@ -319,7 +330,7 @@ Este modo elimina estas imágenes creadas para no ensuciar la lista local de im�
                 tasks.fire_async(async move {
                     let tx_arc = Arc::clone(&tx_arc);
                     let Ok(docker) = container::Client::new().await else {
-                        return println!("No docker client");
+                        return error!("No docker client");
                     };
 
                     *progress_arc.lock().unwrap() = match docker
@@ -332,13 +343,13 @@ Este modo elimina estas imágenes creadas para no ensuciar la lista local de im�
                         )
                         .await
                     {
-                        Ok(_) => {
-                            println!("Push OK");
+                        Ok(()) => {
+                            info!("Push OK");
                             // TODO trigger main list refresh?
                             PushProgress::Ok
                         }
                         Err(x) => {
-                            println!("Pull failed: {x:?}");
+                            error!("Pull failed: {x:?}");
                             PushProgress::Failed
                         }
                     }
@@ -356,7 +367,8 @@ impl PushInfo {
     fn progress_table(&self, ui: &mut egui::Ui) -> egui::scroll_area::ScrollAreaOutput<()> {
         let available_height = 50.0;
         let row_height = 18.0;
-        let table = TableBuilder::new(ui)
+
+        TableBuilder::new(ui)
             .striped(true)
             .resizable(false)
             .auto_shrink(false)
@@ -380,18 +392,15 @@ impl PushInfo {
                         continue;
                     };
                     let mut progress_str = String::new();
-                    match &msg.progress_detail {
-                        Some(detail) => {
-                            if let Some(total) = detail.total
-                                && let Some(current) = detail.current
-                                && total != 0
-                            {
-                                let progress = (current as f64 / total as f64) * 100.0;
-                                progress_str = format!("({progress:.2}%)");
-                            }
-                        }
-                        None => {}
-                    };
+                    if let Some(detail) = &msg.progress_detail
+                        && let Some(total) = detail.total
+                        && let Some(current) = detail.current
+                        && total != 0
+                    {
+                        #[allow(clippy::cast_precision_loss)]
+                        let progress = (current as f64 / total as f64) * 100.0;
+                        progress_str = format!("({progress:.2}%)");
+                    }
                     match &msg.error_detail {
                         Some(error) => body.row(row_height, |mut row| {
                             row.col(|ui| {
@@ -408,7 +417,6 @@ impl PushInfo {
                         }
                     }
                 }
-            });
-        table
+            })
     }
 }

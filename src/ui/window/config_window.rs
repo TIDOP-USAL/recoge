@@ -1,14 +1,16 @@
 // TODO change to modal
-use super::WindowOptions;
+use super::{WindowOptions, WindowPosition};
 use crate::configuration::AppConfig;
 use crate::tasks::Task;
 use crate::ui::GlobalData;
+use crate::ui::widgets;
 use crate::zot;
 use eframe::egui;
 use egui::{Align, Layout, UiBuilder};
 use egui_notify::Toasts;
 use futures::executor::block_on;
 use futures::lock::Mutex as AsyncMutex;
+use log::{debug, error, info, trace};
 use std::sync::Arc;
 
 pub struct WindowState {
@@ -18,6 +20,7 @@ pub struct WindowState {
 }
 
 impl WindowState {
+    #[must_use]
     pub fn default() -> Self {
         Self {
             options: window_options(),
@@ -43,10 +46,12 @@ impl WindowState {
     }
 }
 
+#[must_use]
 pub fn window_options() -> WindowOptions {
     WindowOptions {
         id: egui::Id::new("config_window"),
         title: "Configuración".to_owned(),
+        default_position: WindowPosition::Center,
         ..Default::default()
     }
 }
@@ -57,6 +62,21 @@ pub struct WindowData {
     pub global_data_arc: Arc<AsyncMutex<GlobalData>>,
     pub toasts_arc: Arc<AsyncMutex<Toasts>>,
     unsaved_changes: bool,
+}
+
+fn update_temporal_config(
+    unsaved_changes: &mut bool,
+    new_config: &AppConfig,
+    global_data_arc: &Arc<AsyncMutex<GlobalData>>,
+) {
+    let mut tasks: Task<()> = Task::new();
+    let global_data_arc = Arc::clone(global_data_arc);
+    let new_config = new_config.clone();
+    *unsaved_changes = true;
+    tasks.fire_async(async move {
+        trace!("Updating temporal config");
+        config_update(new_config, &global_data_arc);
+    });
 }
 
 pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
@@ -73,21 +93,6 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
     ui.label("Credenciales de Registro de Contenedores:");
     ui.add_space(10.0);
 
-    fn update_temporal_config(
-        unsaved_changes: &mut bool,
-        new_config: &AppConfig,
-        global_data_arc: &Arc<AsyncMutex<GlobalData>>,
-    ) {
-        let mut tasks: Task<()> = Task::new();
-        let global_data_arc = Arc::clone(global_data_arc);
-        let new_config = new_config.clone();
-        *unsaved_changes = true;
-        tasks.fire_async(async move {
-            println!("Updating temporal config");
-            config_update(new_config, &global_data_arc);
-        });
-    }
-
     egui::Grid::new("config_rows_grid_1")
         .num_columns(2)
         .spacing([20.0, 5.0])
@@ -96,14 +101,14 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             ui.label("Dirección del Registro:");
             let registry_ui = ui.text_edit_singleline(&mut app_config_copy.remote_url);
             registry_ui.context_menu(|ui| {
-                textedit_context_menu(ui, &mut app_config_copy.remote_url);
+                widgets::textedit_context_menu(ui, &mut app_config_copy.remote_url);
                 registry_ui.request_focus();
             });
             if registry_ui.changed() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 update_temporal_config(
                     unsaved_changes,
-                    &app_config_copy,
-                    &Arc::clone(&global_data_arc),
+                    app_config_copy,
+                    &Arc::clone(global_data_arc),
                 );
             }
             ui.end_row();
@@ -111,14 +116,14 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             ui.label("Usuario:");
             let user_ui = ui.text_edit_singleline(&mut app_config_copy.user);
             user_ui.context_menu(|ui| {
-                textedit_context_menu(ui, &mut app_config_copy.user);
+                widgets::textedit_context_menu(ui, &mut app_config_copy.user);
                 user_ui.request_focus();
             });
             if user_ui.changed() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 update_temporal_config(
                     unsaved_changes,
-                    &app_config_copy,
-                    &Arc::clone(&global_data_arc),
+                    app_config_copy,
+                    &Arc::clone(global_data_arc),
                 );
             }
             ui.end_row();
@@ -127,10 +132,6 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             let mut show_plaintext = ui.data_mut(|d| d.get_temp::<bool>(state_id).unwrap_or(false));
             ui.label("Contraseña:");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                /*if ui.button("X").on_hover_text("Borrar contraseña").clicked() {
-                    app_config_copy.password.clear();
-                }*/
-
                 let response = ui
                     .selectable_label(show_plaintext, "👁")
                     .on_hover_text("Mostrar/ocultar contraseña");
@@ -142,14 +143,14 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
                     .password(!show_plaintext);
                 let password_ui = ui.add_sized(ui.available_size(), password_edit);
                 password_ui.context_menu(|ui| {
-                    textedit_context_menu(ui, &mut app_config_copy.password);
+                    widgets::textedit_context_menu(ui, &mut app_config_copy.password);
                     password_ui.request_focus();
                 });
                 if password_ui.changed() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     update_temporal_config(
                         unsaved_changes,
-                        &app_config_copy,
-                        &Arc::clone(&global_data_arc),
+                        app_config_copy,
+                        &Arc::clone(global_data_arc),
                     );
                 }
             });
@@ -159,7 +160,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             ui.end_row();
             ui.label("");
             if ui.button("Comprobar").clicked() {
-                println!("Check creds");
+                debug!("Checking credentials");
                 let mut tasks: Task<()> = Task::new();
                 let creds_config = app_config_copy.clone();
                 let toasts_arc = Arc::clone(toasts_arc);
@@ -195,7 +196,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             .on_hover_text("Guardar la configuración permanentemente")
             .clicked()
         {
-            println!("Guardar");
+            debug!("Save action");
             let mut tasks: Task<()> = Task::new();
             let global_data_arc = Arc::clone(global_data_arc);
             let toasts_arc = Arc::clone(toasts_arc);
@@ -223,8 +224,8 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
 
 fn config_update(new_config: AppConfig, global_data_arc: &Arc<AsyncMutex<GlobalData>>) {
     let mut global_data = block_on(global_data_arc.lock().into_future());
-    println!("locked global data");
-    println!("new data: {new_config:?}");
+    trace!("Locked global data");
+    trace!("new data: {new_config:?}");
     global_data.config.remote_url = new_config.remote_url;
     global_data.config.user = new_config.user;
     global_data.config.password = new_config.password;
@@ -235,30 +236,15 @@ fn config_save(
     toasts_arc: &Arc<AsyncMutex<Toasts>>,
 ) {
     let global_data = block_on(global_data_arc.lock().into_future());
-    println!("locked global data");
+    trace!("Locked global data");
     let result = global_data.config.serialize_config();
     let mut toasts = block_on(toasts_arc.lock().into_future());
     if let Ok(()) = result {
-        println!("Saved config file");
+        info!("Saved config file");
         toasts.success("Configuración guardada correctamente");
     } else {
-        println!("Error while saving config file");
+        error!("Error while saving config file");
         toasts.error("Error al guardar la configuración");
-    }
-}
-
-fn textedit_context_menu(ui: &mut egui::Ui, content: &mut String) {
-    if ui.button("Copiar todo").clicked() {
-        ui.ctx().copy_text(content.clone());
-        ui.close();
-    }
-    if ui.button("Pegar y reemplazar").clicked() {
-        content.clear();
-        ui.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
-        ui.close();
-    }
-    if ui.button("Borrar").clicked() {
-        content.clear();
     }
 }
 

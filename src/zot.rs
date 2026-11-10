@@ -2,12 +2,14 @@ use crate::configuration::AppConfig;
 use crate::container;
 use crate::error::{ClientError, Error, RemoteError, Result};
 use chrono::{DateTime, Utc};
+use log::{debug, error, trace, warn};
 use reqwest::Method;
 use reqwest::RequestBuilder;
 use reqwest::Url;
 use reqwest::header::ACCEPT;
 use serde::{Deserialize, Serialize};
 use serde_aux::prelude::*;
+use std::fmt::Write;
 
 pub struct Client {
     api_base_url: String,
@@ -23,6 +25,7 @@ pub struct ImageDisplayMetadata {
 }
 
 impl Client {
+    #[must_use]
     pub fn get_registry_name(&self) -> String {
         self.api_base_url
             .strip_prefix("https://")
@@ -31,7 +34,8 @@ impl Client {
     }
 
     // Don't call on an empty image
-    pub fn fill_image_metadata(&self, image: container::Image) -> ImageDisplayMetadata {
+    #[must_use]
+    pub fn fill_image_metadata(&self, image: &container::Image) -> ImageDisplayMetadata {
         // No API calls
         let registry_name = self.get_registry_name();
         let repo_info = image.repository_info.clone().unwrap();
@@ -45,20 +49,21 @@ impl Client {
         }
     }
 
+    #[must_use]
     pub fn get_credentials(&self) -> (String, String) {
         (self.username.clone(), self.password.clone())
     }
 
     pub fn new(config: &AppConfig) -> Result<Self> {
         if config.remote_url.is_empty() {
-            println!("Can't create zot client without API URL"); // TODO public images support
+            error!("Can't create zot client without API URL"); // TODO public images support
             return Err(ClientError::Invalid("Missing URL".to_string()).err());
         }
         if config.is_missing_credentials() {
-            println!("Can't create zot client without user credentials"); // TODO public images support
+            error!("Can't create zot client without user credentials"); // TODO public images support
             return Err(ClientError::Invalid("Missing credentials".to_string()).err());
         }
-        println!("Zot client created");
+        debug!("Zot client created");
         let mut api_base_url = config.remote_url.clone();
         if !api_base_url.starts_with("https://") {
             api_base_url = format!("https://{api_base_url}");
@@ -78,13 +83,13 @@ impl Client {
         query: Option<&str>,
     ) -> Result<RequestBuilder> {
         let Ok(mut url) = Url::parse(&self.api_base_url) else {
-            println!("URL parse error");
+            error!("URL parse error");
             return Err(ClientError::Invalid("URL".to_string()).err());
         };
         url.set_scheme("https").unwrap();
         url.set_path(path);
         url.set_query(query);
-        println!("Using URL: {url}");
+        trace!("Using URL: {url}");
         let client = reqwest::Client::new().request(method, url.as_str());
         let client = client
             .header(
@@ -109,7 +114,7 @@ impl Client {
         else {
             return Err(Error::Program("Can't reach zot".to_string()));
         };
-        println!("{response:?}");
+        trace!("GraphQL client response: {response:?}");
         if response.status().is_client_error() {
             return Err(Error::Program("zot client err".to_string()));
         }
@@ -124,27 +129,27 @@ impl Client {
     }
 
     pub async fn get_repository_list(&mut self) -> Result<Vec<String>> {
-        let query = format!(
-            r#"query=
-{{
-  GlobalSearch(query:"", requestedPage: {{limit:0 offset:0 sortBy: ALPHABETIC_ASC}} ) {{
-    Repos {{
+        let query = r#"query=
+{
+  GlobalSearch(query:"", requestedPage: {limit:0 offset:0 sortBy: ALPHABETIC_ASC} ) {
+    Repos {
       Name
-    }}
-  }}
-}}
+    }
+  }
+}
 "#
-        );
+        .to_string();
         let response = self.graphql_client(query).await?;
         let body: GlobalSearchReposResponse = match response.json().await {
             Ok(x) => x,
             Err(x) => {
-                println!("error: {x:?}");
+                error!("Get Repo list error: {x:?}");
                 return Err(Error::Program("Can't decode Zot response".to_string()));
             }
         };
         let list = body.data.GlobalSearch.Repos;
-        println!("List: {list:#?}");
+        debug!("Retrieved {} repos", list.len());
+        trace!("List: {list:#?}");
         let mut repos = Vec::new();
         for result in list {
             repos.push(result.Name);
@@ -178,16 +183,17 @@ impl Client {
         let body: RepoListWithNewestImageResponse = match response.json().await {
             Ok(x) => x,
             Err(x) => {
-                println!("error: {x:?}");
+                error!("Get RepoListWithNewestImage error: {x:?}");
                 return Err(Error::Program("Can't decode Zot response".to_string()));
             }
         };
         let list = body.data.RepoListWithNewestImage.Results;
-        println!("List: {list:#?}");
+        debug!("Retrieved {} repos", list.len());
+        trace!("List: {list:#?}");
         let mut images = Vec::new();
         for result in list {
             let Ok(image) = container::Image::try_from(&result) else {
-                println!("Error: skipping invalid image");
+                warn!("Error: skipping invalid image");
                 continue;
             };
             images.push(image);
@@ -216,18 +222,18 @@ impl Client {
         let body: ImageResponse = match response.json().await {
             Ok(x) => x,
             Err(x) => {
-                println!("error: {x:?}");
+                error!("Get Image error: {x:?}");
                 return Err(Error::Program("Can't decode Zot response".to_string()));
             }
         };
         let Some(data) = body.data else {
             // Not found
-            println!("Image not found on registry");
+            warn!("Image not found on registry");
             return Err(ClientError::NotFound("Image not found".to_string()).err());
         };
-        println!("{data:#?}");
+        trace!("Image info: {data:#?}");
         let image = container::Image::try_from(&data.Image)?;
-        println!("Image: {image:#?}");
+        trace!("Parsed image: {image:#?}");
         Ok(image)
     }
 
@@ -243,7 +249,7 @@ impl Client {
         else {
             return Err(Error::Program("Can't reach zot".to_string()));
         };
-        println!("{response:?}");
+        trace!("Delete response: {response:?}");
         if response.status().is_client_error() {
             return Err(Error::Program("zot client err".to_string()));
         }
@@ -277,13 +283,14 @@ impl Client {
         let body: ImageListResponse = match response.json().await {
             Ok(x) => x,
             Err(x) => {
-                println!("error: {x:?}");
+                error!("Get ImageList error: {x:?}");
                 return Err(Error::Program("Can't decode Zot response".to_string()));
             }
         };
         let mut images = Vec::new();
         let data = body.data.ImageList.Results;
-        println!("Repo {repo} : {data:#?}");
+        debug!("Retrieved {} images", data.len());
+        trace!("Repo {repo} : {data:#?}");
         for image in data {
             images.push(container::Image::try_from(&image)?);
         }
@@ -313,13 +320,14 @@ impl Client {
         let body: DigestImageListResponse = match response.json().await {
             Ok(x) => x,
             Err(x) => {
-                println!("error: {x:?}");
+                error!("Get ImageListForDigest error: {x:?}");
                 return Err(Error::Program("Can't decode Zot response".to_string()));
             }
         };
         let mut images = Vec::new();
         let data = body.data.ImageListForDigest.Results;
-        println!("Digest {digest} : {data:#?}");
+        debug!("Retrieved {} images", data.len());
+        trace!("Digest {digest} : {data:#?}");
         for image in data {
             images.push(container::Image::try_from(&image)?);
         }
@@ -458,7 +466,7 @@ pub struct RemoteImageInfo {
 }
 
 pub async fn get_remote_info(image_name: String, client: &mut Client) -> Result<RemoteImageInfo> {
-    println!("checking on remote: {image_name:#?}");
+    debug!("Checking remote image: {image_name:#?}");
     let mut image_name = image_name;
     // Strip domain from repo name
     let mut parts = image_name.split('/');
@@ -468,16 +476,16 @@ pub async fn get_remote_info(image_name: String, client: &mut Client) -> Result<
         && let Some(first) = parts.next()
     {
         // Is domain (crude)
-        if first.contains(".") || first.contains("localhost") {
+        if first.contains('.') || first.contains("localhost") {
             let mut remainder = String::new();
             for part in parts {
-                remainder += &format!("{part}/");
+                let _ = write!(remainder, "{part}/");
             }
             remainder.pop(); // remove trailing '/'
             image_name = remainder;
         }
     }
-    println!("parsed name: {image_name:?}");
+    trace!("Image parsed name: {image_name:?}");
 
     match client.get_image_info(image_name).await {
         Ok(x) => Ok(RemoteImageInfo {
@@ -563,7 +571,7 @@ impl container::ImageCollection {
         repos.dedup();
         let mut image_aliases = Vec::new();
         for repo in repos {
-            println!("Querying images in repo {repo}");
+            debug!("Querying images in repo {repo}");
             let repo_images = client.get_repo_images(repo).await?;
             for image in repo_images {
                 image_aliases.push(image);

@@ -6,6 +6,7 @@ use eframe::egui;
 use egui::{Id, Modal};
 use egui_extras::{Column, TableBuilder};
 use futures::lock::Mutex as AsyncMutex;
+use log::{debug, error, info, trace};
 use std::sync::{Arc, Mutex};
 
 #[derive(PartialEq, Clone)]
@@ -31,14 +32,16 @@ pub struct ModalData {
 }
 
 impl ModalData {
+    #[must_use]
     pub fn image_was_deleted(&self) -> bool {
         *self.delete_progress.lock().unwrap() == DeleteProgress::Ok
     }
 
-    pub fn new(image: String, config: AppConfig) -> Self {
+    #[must_use]
+    pub fn new(image: &str, config: AppConfig) -> Self {
         Self {
-            image_name: image.clone(),
-            config: config.clone(),
+            image_name: image.to_string(),
+            config,
             delete_progress: Arc::new(Mutex::new(DeleteProgress::NotStarted)),
         }
     }
@@ -65,7 +68,7 @@ impl ModalData {
                 container::RepositoryInfo::try_from_repo_tag(self.image_name.clone())
             else {
                 ui.close_kind(egui::UiKind::Window);
-                println!("Invalid image");
+                error!("Invalid image");
                 panic!();
             };
 
@@ -105,7 +108,7 @@ impl ModalData {
                         let progress_arc = Arc::clone(&self.delete_progress);
                         let Ok(mut zot_client) = zot::Client::new(&self.config) else {
                             ui.close_kind(egui::UiKind::Window);
-                            return println!("Invalid config");
+                            return error!("Invalid config");
                         };
 
                         tasks.fire_async(async move {
@@ -114,11 +117,11 @@ impl ModalData {
                                 .await
                             {
                                 Ok(mut x) => {
-                                    println!("Delete OK");
+                                    info!("Delete OK");
                                     DeleteProgress::Ok
                                 }
                                 Err(x) => {
-                                    println!("Delete failed: {x:?}");
+                                    error!("Delete failed: {x:?}");
                                     DeleteProgress::Failed
                                 }
                             }

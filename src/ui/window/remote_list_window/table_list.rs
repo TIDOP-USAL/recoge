@@ -12,6 +12,7 @@ use egui::containers::scroll_area::DragScroll;
 use egui::{Id, Modal};
 use egui_extras::{Column, TableBuilder};
 use futures::lock::Mutex as AsyncMutex;
+use log::{debug, error, info, trace};
 use std::sync::Arc;
 
 pub async fn load_list_data(data: Arc<AsyncMutex<WindowData>>) -> Result<(), ()> {
@@ -28,7 +29,7 @@ pub async fn load_list_data(data: Arc<AsyncMutex<WindowData>>) -> Result<(), ()>
         return Err(());
     };
 
-    println!("Loading remote image list");
+    info!("Loading remote image list");
     let list_result = match list_mode {
         super::RemoteImageListMode::All => client.get_image_list().await,
         super::RemoteImageListMode::LastRepoImage => {
@@ -38,7 +39,7 @@ pub async fn load_list_data(data: Arc<AsyncMutex<WindowData>>) -> Result<(), ()>
     let mut remote_image_list = match list_result {
         Ok(x) => x,
         Err(x) => {
-            println!("error: {x:?}");
+            error!("Can't obtain remote image list: {x:?}");
             toasts
                 .lock()
                 .await
@@ -49,25 +50,26 @@ pub async fn load_list_data(data: Arc<AsyncMutex<WindowData>>) -> Result<(), ()>
     };
     remote_image_list.sort_by_key(|x| x.date); // Oldest image first
     remote_image_list.reverse();
-    println!("{remote_image_list:#?}");
+    trace!("{remote_image_list:#?}");
     let mut data_locked = data.lock().await;
     data_locked.remote_image_list = remote_image_list;
-    return Ok(());
+    Ok(())
 }
 
 pub fn table_ui(
     ui: &mut egui::Ui,
     image_table_options: &mut ImageTableOptions,
-    images: &mut Vec<container::Image>,
+    images: &mut [container::Image],
     config: &AppConfig,
     pull_modal_data: &mut Option<PullModalData>,
     delete_modal_data: &mut Option<DeleteModalData>,
 ) -> egui::scroll_area::ScrollAreaOutput<()> {
     let available_height = ui.available_height();
-    let date_rev = image_table_options.ui_date_rev.clone();
-    let name_rev = image_table_options.ui_name_rev.clone();
+    let date_rev = image_table_options.ui_date_rev;
+    let name_rev = image_table_options.ui_name_rev;
     let sort_type = image_table_options.sort_type.clone();
-    let table = TableBuilder::new(ui)
+
+    TableBuilder::new(ui)
         .striped(true)
         .resizable(true)
         .auto_shrink(false)
@@ -98,7 +100,7 @@ pub fn table_ui(
                     if btn.clicked() {
                         image_table_options.ui_name_rev ^= true;
                         image_table_options.sort_type = TableSortType::Name;
-                        sort_table(image_table_options.clone(), images);
+                        sort_table(image_table_options, images);
                     }
                 });
             });
@@ -112,7 +114,7 @@ pub fn table_ui(
             });
             header.col(|ui| {
                 ui.horizontal(|ui| {
-                    ui.strong("Fecha de subida");
+                    ui.strong("Fecha de creación");
                     let btn =
                         ui.button(if date_rev { "⬇" } else { "⬆" })
                             .on_hover_text(if date_rev {
@@ -126,23 +128,16 @@ pub fn table_ui(
                     if btn.clicked() {
                         image_table_options.ui_date_rev ^= true;
                         image_table_options.sort_type = TableSortType::Date;
-                        sort_table(image_table_options.clone(), images);
+                        sort_table(image_table_options, images);
                     }
                 });
             });
         })
         .body(|mut body| {
             for image in images.iter() {
-                image_table_row(
-                    image,
-                    &mut body,
-                    &config,
-                    pull_modal_data,
-                    delete_modal_data,
-                );
+                image_table_row(image, &mut body, config, pull_modal_data, delete_modal_data);
             }
-        });
-    table
+        })
 }
 
 fn image_table_row(
@@ -159,7 +154,7 @@ fn image_table_row(
             if !image_name.contains(':') {
                 image_name.push_str(" (Sin nombre)");
             }
-            ui.label(image_name.to_string())
+            ui.label(image_name.clone())
                 .on_hover_text(image_name.clone());
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
@@ -168,8 +163,8 @@ fn image_table_row(
                     .on_hover_text("Descargar de Registro")
                     .clicked()
                 {
-                    println!("Pull modal for {image_name}");
-                    //println!("{image:#?}");
+                    debug!("Pull modal for {image_name}");
+                    trace!("{image:#?}");
                     *pull_modal_data = Some(PullModalData::new(image.clone(), config.clone()));
                 }
                 if ui
@@ -177,15 +172,15 @@ fn image_table_row(
                     .on_hover_text(format!("Eliminar la imagen {image_name}"))
                     .clicked()
                 {
-                    println!("Delete modal for: {image_name}");
-                    *delete_modal_data = Some(DeleteModalData::new(image_name, config.clone()));
+                    debug!("Delete modal for: {image_name}");
+                    *delete_modal_data = Some(DeleteModalData::new(&image_name, config.clone()));
                 }
                 /*if ui
                     .button("ℹ")
                     .on_hover_text("Información de la imagen")
                     .clicked()
                 {
-                    println!("Info de {image_name}");
+                    debug!("Inspect {image_name}");
                 }*/
             });
         });
@@ -207,8 +202,8 @@ fn image_table_row(
     });
 }
 
-fn sort_table(options: ImageTableOptions, list: &mut Vec<container::Image>) {
-    println!("Sorting image table: {options:#?}");
+fn sort_table(options: &ImageTableOptions, list: &mut [container::Image]) {
+    debug!("Sorting image table: {options:#?}");
     match options.sort_type {
         TableSortType::None => {}
         TableSortType::Date => {
