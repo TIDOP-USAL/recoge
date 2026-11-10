@@ -149,7 +149,7 @@ pub fn ui(
     egui::Panel::left("left_panel")
         .resizable(true)
         .min_size(150.0)
-        .default_size(200.0)
+        .default_size(230.0)
         .max_size(400.0)
         .show(ui, |ui| {
             ui.group(|ui| {

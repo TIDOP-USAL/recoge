@@ -1,5 +1,5 @@
 // TODO change to modal
-use super::WindowOptions;
+use super::{WindowOptions, WindowPosition};
 use crate::configuration::AppConfig;
 use crate::tasks::Task;
 use crate::ui::GlobalData;
@@ -49,6 +49,7 @@ pub fn window_options() -> WindowOptions {
     WindowOptions {
         id: egui::Id::new("config_window"),
         title: "Configuración".to_owned(),
+        default_position: WindowPosition::Center,
         ..Default::default()
     }
 }

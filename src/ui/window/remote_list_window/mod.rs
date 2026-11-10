@@ -83,7 +83,7 @@ pub fn window_options() -> WindowOptions {
         collapsible: true,
         resizable: true,
         min_size: WindowSize::Fixed(min_window_size),
-        default_size: WindowSize::Fixed(egui::vec2(min_window_size.x / 2.0, 160.0)),
+        default_size: WindowSize::Fixed(egui::vec2(min_window_size.x / 2.0, 320.0)),
         //max_size: WindowSize::Fixed(max_window_size),
         ..Default::default()
     }

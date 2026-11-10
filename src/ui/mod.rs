@@ -35,7 +35,7 @@ pub fn ui_start() -> eframe::Result {
 
     let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([900.0, 450.0])
+            .with_inner_size([910.0, 480.0])
             .with_icon(icon),
         ..Default::default()
     };
@@ -197,6 +197,9 @@ impl MyApp {
             let _r = image_info_window::load_image_info(arc_2, input_data).await;
             // TODO if ok
             window_is_loading.store(Arc::new(false.to_owned()));
+            let mut width = 180 + image.get_image_name().len() * 18;
+            width = std::cmp::max(width, 400);
+            image_info_window_state.options.default_width = Some(width as f32);
             image_info_window_state.open();
             ctx.request_repaint();
         });

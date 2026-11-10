@@ -47,7 +47,6 @@ pub fn window_options() -> WindowOptions {
         title: "Información de imagen".to_owned(),
         closable: true,
         collapsible: true,
-        min_size: WindowSize::Half,
         resizable: true,
         ..Default::default()
     }
