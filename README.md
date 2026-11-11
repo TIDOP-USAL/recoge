@@ -2,7 +2,7 @@
 
 Interfaz gráfica de escritorio para la _GEstión de REgistros de COntenedores_.
 
-[![Current Version](https://img.shields.io/badge/release-v0.2.0-85c20f.svg)](https://github.com/TIDOP-USAL/recoge/releases<)
+[![Current Version](https://img.shields.io/badge/release-v0.2.1-85c20f.svg)](https://github.com/TIDOP-USAL/recoge/releases)
 [![MSRV](https://img.shields.io/badge/MSRV-1.95.0-69add7.svg)](https://rustup.rs/)
 
 ---
