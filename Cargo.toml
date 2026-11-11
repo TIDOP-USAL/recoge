@@ -1,6 +1,6 @@
 [package]
 name = "recoge"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Miguel Ángel Sánchez Herreros", "Tidop Research Group <tidop@usal.es>"]
 license = "GPL-3.0-or-later"
 edition = "2024"
