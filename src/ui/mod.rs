@@ -445,9 +445,11 @@ impl eframe::App for MyApp {
                         self.image_table_options.search_field = None;
                     }
                     filter.context_menu(|ui| {
+                        let mut _changed = false;
                         widgets::textedit_context_menu(
                             ui,
                             self.image_table_options.search_field.as_mut().unwrap(),
+                            &mut _changed,
                         );
                         filter.request_focus();
                     });

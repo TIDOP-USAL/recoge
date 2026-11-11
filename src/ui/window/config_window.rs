@@ -101,7 +101,11 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             ui.label("Dirección del Registro:");
             let registry_ui = ui.text_edit_singleline(&mut app_config_copy.remote_url);
             registry_ui.context_menu(|ui| {
-                widgets::textedit_context_menu(ui, &mut app_config_copy.remote_url);
+                widgets::textedit_context_menu(
+                    ui,
+                    &mut app_config_copy.remote_url,
+                    unsaved_changes,
+                );
                 registry_ui.request_focus();
             });
             if registry_ui.changed() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -116,7 +120,7 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
             ui.label("Usuario:");
             let user_ui = ui.text_edit_singleline(&mut app_config_copy.user);
             user_ui.context_menu(|ui| {
-                widgets::textedit_context_menu(ui, &mut app_config_copy.user);
+                widgets::textedit_context_menu(ui, &mut app_config_copy.user, unsaved_changes);
                 user_ui.request_focus();
             });
             if user_ui.changed() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -143,7 +147,11 @@ pub fn ui_fn(ui: &mut egui::Ui, data: &mut WindowData) {
                     .password(!show_plaintext);
                 let password_ui = ui.add_sized(ui.available_size(), password_edit);
                 password_ui.context_menu(|ui| {
-                    widgets::textedit_context_menu(ui, &mut app_config_copy.password);
+                    widgets::textedit_context_menu(
+                        ui,
+                        &mut app_config_copy.password,
+                        unsaved_changes,
+                    );
                     password_ui.request_focus();
                 });
                 if password_ui.changed() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
