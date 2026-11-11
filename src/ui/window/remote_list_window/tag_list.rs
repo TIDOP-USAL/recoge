@@ -239,9 +239,11 @@ pub fn ui(
                         image_table_options.repo_search_field = None;
                     }
                     filter.context_menu(|ui| {
+                        let mut changed = false;
                         crate::ui::widgets::textedit_context_menu(
                             ui,
                             image_table_options.repo_search_field.as_mut().unwrap(),
+                            &mut changed,
                         );
                         filter.request_focus();
                     });

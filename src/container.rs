@@ -422,7 +422,17 @@ impl Client {
                 }
                 Err(x) => {
                     error!("Pull error {x:?}");
-                    // TODO return err?
+                    let error = bollard::config::CreateImageInfo {
+                        error_detail: Some(bollard::config::ErrorDetail {
+                            code: None,
+                            message: format!("{x:?}").into(),
+                        }),
+                        ..Default::default()
+                    };
+                    if let Err(x) = tx.send(error) {
+                        error!("Can't send push state: {:?}", x.0);
+                    }
+                    return Err(Error::Program(format!("{x:#?}")));
                 }
             }
         }
@@ -495,21 +505,17 @@ impl Client {
                     }
                     Err(x) => {
                         error!("Push error {x:?}");
-                        let error_detail = Some(bollard::config::ErrorDetail {
-                            code: None,
-                            message: format!("{x:?}").into(),
-                        });
                         let error = bollard::config::PushImageInfo {
-                            error_detail,
+                            error_detail: Some(bollard::config::ErrorDetail {
+                                code: None,
+                                message: format!("{x:?}").into(),
+                            }),
                             ..Default::default()
                         };
-                        match tx.send(error) {
-                            Err(x) => {
-                                error!("Can't send push state: {:#?}", x.0);
-                            }
-                            Ok(_x) => (),
+                        if let Err(x) = tx.send(error) {
+                            error!("Can't send push state: {:?}", x.0);
                         }
-                        return Err(Error::Program(format!("{x:?}")));
+                        return Err(Error::Program(format!("{x:#?}")));
                     }
                 }
             }
