@@ -1,6 +1,7 @@
 use super::WindowOptions;
 use crate::configuration::AppConfig;
 use crate::container;
+use crate::error::Error;
 use crate::tasks::Task;
 use crate::zot;
 use bollard::config::PushImageInfo;
@@ -113,13 +114,13 @@ pub enum PushProgress {
     NotStarted,
     InProgress,
     Ok,
-    Failed,
+    Failed(Option<String>),
 }
 
 #[allow(unused)]
 impl PushProgress {
     fn has_ended(&self) -> bool {
-        *self == Self::Ok || *self == Self::Failed
+        matches!(*self, Self::Ok | Self::Failed(_))
     }
     fn can_start(&self) -> bool {
         *self != Self::Ok && *self != Self::InProgress
@@ -269,7 +270,7 @@ Este modo elimina estas imÃ¡genes creadas para no ensuciar la lista local de imÃ
     let push_progress_mutex = push_info.progress.lock().unwrap();
     let push_progress = push_progress_mutex.clone();
     drop(push_progress_mutex);
-    ui.horizontal(|ui| match push_progress {
+    ui.horizontal(|ui| match &push_progress {
         PushProgress::NotStarted => {
             ui.label("Estado de la subida:");
         }
@@ -280,8 +281,13 @@ Este modo elimina estas imÃ¡genes creadas para no ensuciar la lista local de imÃ
         PushProgress::Ok => {
             ui.label("Subida correcta âœ”");
         }
-        PushProgress::Failed => {
-            ui.label("Fallo al subir");
+        PushProgress::Failed(msg) => {
+            ui.horizontal(|ui| {
+                ui.label("Fallo al subir");
+                if let Some(msg) = msg {
+                    ui.label("â„¹").on_hover_text(msg);
+                }
+            });
         }
     });
     ui.add_space(10.0);
@@ -348,9 +354,13 @@ Este modo elimina estas imÃ¡genes creadas para no ensuciar la lista local de imÃ
                             // TODO trigger main list refresh?
                             PushProgress::Ok
                         }
-                        Err(x) => {
-                            error!("Pull failed: {x:?}");
-                            PushProgress::Failed
+                        Err(e) => {
+                            error!("Pull failed: {e:?}");
+                            let mut msg = match e {
+                                Error::Program(msg) => msg,
+                                _ => format!("{e:#?}"),
+                            };
+                            PushProgress::Failed(Some(msg))
                         }
                     }
                 });

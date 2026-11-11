@@ -180,13 +180,13 @@ pub enum PullProgress {
     NotStarted,
     InProgress,
     Ok,
-    Failed,
+    Failed(Option<String>),
 }
 
 #[allow(unused)]
 impl PullProgress {
     fn has_ended(&self) -> bool {
-        *self == Self::Ok || *self == Self::Failed
+        matches!(*self, Self::Ok | Self::Failed(_))
     }
     fn can_start(&self) -> bool {
         *self != Self::Ok && *self != Self::InProgress

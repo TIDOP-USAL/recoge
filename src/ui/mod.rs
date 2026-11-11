@@ -124,7 +124,7 @@ impl MyApp {
                 let mut toasts = toasts_arc.lock().await;
                 toasts
                     .warning(
-                        "No se ha configurado el usuario del Registro. Entra en la configuración ⚙",
+                        "No se ha configurado el usuario del Registro.\nIntroduce las credenciales en la Configuración ⚙.",
                     )
                     .duration(std::time::Duration::from_secs(20));
                 warn!("Config is missing credentials");
@@ -149,8 +149,8 @@ impl MyApp {
                 *image_list_load_state_arc.lock().unwrap() = LoadState::NotLoaded;
                 let mut toasts = toasts_arc.lock().await;
                 toasts
-                    .error("No se puede obtener la lista de imágenes.")
-                    .duration(std::time::Duration::from_secs(3));
+                    .error("No se puede obtener la lista de imágenes.\nComprueba que Docker esté funcionando.")
+                    .duration(std::time::Duration::from_secs(5));
                 return;
             };
             let mut image_list = image_list_arc.lock().unwrap();
@@ -445,11 +445,11 @@ impl eframe::App for MyApp {
                         self.image_table_options.search_field = None;
                     }
                     filter.context_menu(|ui| {
-                        let mut _changed = false;
+                        let mut changed = false;
                         widgets::textedit_context_menu(
                             ui,
                             self.image_table_options.search_field.as_mut().unwrap(),
-                            &mut _changed,
+                            &mut changed,
                         );
                         filter.request_focus();
                     });

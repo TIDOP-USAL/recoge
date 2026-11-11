@@ -2,6 +2,7 @@ use super::PullProgress;
 use super::{WindowOptions, WindowSize};
 use crate::configuration::AppConfig;
 use crate::container;
+use crate::error::Error;
 use crate::tasks::Task;
 use crate::zot;
 use bollard::config::CreateImageInfo;
@@ -98,7 +99,7 @@ impl ModalData {
             let pull_progress_mutex = self.pull_progress.lock().unwrap();
             let pull_progress = pull_progress_mutex.clone();
             drop(pull_progress_mutex);
-            ui.horizontal(|ui| match pull_progress {
+            ui.horizontal(|ui| match &pull_progress {
                 PullProgress::NotStarted => {
                     ui.label("Estado de la descarga:");
                 }
@@ -109,8 +110,13 @@ impl ModalData {
                 PullProgress::Ok => {
                     ui.label("Descarga correcta ✔");
                 }
-                PullProgress::Failed => {
-                    ui.label("Fallo al descargar");
+                PullProgress::Failed(msg) => {
+		    ui.horizontal(|ui| {
+			ui.label("Fallo al descargar");
+			if let Some(msg) = msg {
+			    ui.label("ℹ").on_hover_text(msg);
+			}
+		    });
                 }
             });
             ui.add_space(10.0);
@@ -168,9 +174,13 @@ impl ModalData {
                                     // Main list refresh is triggered in mod.rs
                                     PullProgress::Ok
                                 }
-                                Err(x) => {
-                                    info!("Pull failed: {x:?}");
-                                    PullProgress::Failed
+                                Err(e) => {
+                                    info!("Pull failed: {e:?}");
+				    let mut msg = match e {
+					Error::Program(msg) => msg,
+					_ => format!("{e:#?}"),
+        			    };
+                                    PullProgress::Failed(Some(msg))
                                 }
                             }
                         });

@@ -430,9 +430,9 @@ impl Client {
                         ..Default::default()
                     };
                     if let Err(x) = tx.send(error) {
-                        error!("Can't send push state: {:#?}", x.0);
+                        error!("Can't send push state: {:?}", x.0);
                     }
-                    return Err(Error::Program(format!("{x:?}")));
+                    return Err(Error::Program(format!("{x:#?}")));
                 }
             }
         }
@@ -513,9 +513,9 @@ impl Client {
                             ..Default::default()
                         };
                         if let Err(x) = tx.send(error) {
-                            error!("Can't send push state: {:#?}", x.0);
+                            error!("Can't send push state: {:?}", x.0);
                         }
-                        return Err(Error::Program(format!("{x:?}")));
+                        return Err(Error::Program(format!("{x:#?}")));
                     }
                 }
             }
